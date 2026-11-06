@@ -64,6 +64,10 @@ public final class CrmStore extends SQLiteOpenHelper {
         public long income, expense, ordersCreated;
         public long cashProfit(){return income-expense;}
     }
+    public static class ClientOverview extends Client {
+        public long jobCount, paid, debt;
+        public boolean regular(){return jobCount>=2;}
+    }
     public static class ClientMetrics {
         public long jobCount, paid, debt;
         public boolean regular(){return jobCount>=2;}
@@ -177,6 +181,41 @@ public final class CrmStore extends SQLiteOpenHelper {
         }
         return result;
     }
+    /**
+     * Fetches one page of clients and their aggregate metrics in ONE SQLite
+     * query. Avoids hundreds of synchronous DB queries when a page has 100
+     * clients, which matters on low-end Android devices.
+     */
+    public synchronized List<ClientOverview> clientOverviews(String query,int page,
+                                                               boolean repeatOnly) {
+        List<ClientOverview> result=new ArrayList<>();
+        String like="%"+clean(query,100)+"%";
+        String orderCount="(SELECT COUNT(*) FROM jobs j WHERE j.client_id=c.id)";
+        String paid="COALESCE((SELECT SUM(p.amount) FROM payments p " +
+                "JOIN jobs j ON j.id=p.job_id WHERE j.client_id=c.id),0)";
+        String debt="COALESCE((SELECT SUM(MAX(j.price-" +
+                "COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.job_id=j.id),0),0)) " +
+                "FROM jobs j WHERE j.client_id=c.id AND j.status!='Архив'),0)";
+        String sql="SELECT c.id,c.name,c.phone,c.note,c.created_at," +
+                orderCount+" AS job_count,"+paid+" AS total_paid," +
+                debt+" AS total_debt FROM clients c " +
+                "WHERE (c.name LIKE ? OR c.phone LIKE ?) " +
+                (repeatOnly?"AND "+orderCount+">=2 ":"") +
+                "ORDER BY c.id DESC LIMIT ? OFFSET ?";
+        try(Cursor c=getReadableDatabase().rawQuery(sql,new String[]{
+                like,like,""+PAGE_SIZE,""+(Math.max(0,page)*PAGE_SIZE)})) {
+            while(c.moveToNext()) {
+                ClientOverview o=new ClientOverview();
+                o.id=num(c,"id");o.name=col(c,"name");o.phone=col(c,"phone");
+                o.note=col(c,"note");o.createdAt=num(c,"created_at");
+                o.jobCount=num(c,"job_count");o.paid=num(c,"total_paid");
+                o.debt=num(c,"total_debt");
+                result.add(o);
+            }
+        }
+        return result;
+    }
+
     public synchronized ClientMetrics clientMetrics(long clientId) {
         if(client(clientId)==null)throw new IllegalArgumentException("Клиент не найден");
         SQLiteDatabase db=getReadableDatabase();
