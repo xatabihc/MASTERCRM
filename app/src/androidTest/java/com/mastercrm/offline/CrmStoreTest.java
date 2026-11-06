@@ -373,6 +373,51 @@ public class CrmStoreTest {
         assertEquals(4500,db.summary().totalIncome);
     }
 
+    @Test public void overdueOrdersExcludeClosedAndUndatedJobs() {
+        long clientId=client("Сроки");
+        String today=CrmStore.today();
+        String yesterday=java.time.LocalDate.now().minusDays(1).toString();
+        String tomorrow=java.time.LocalDate.now().plusDays(1).toString();
+        long overdue=job(clientId,20000);
+        long dueToday=job(clientId,21000);
+        long soon=job(clientId,22000);
+        long undated=job(clientId,23000);
+        long issued=job(clientId,24000);
+        setDeadline(overdue,yesterday,"Новый");
+        setDeadline(dueToday,today,"В работе");
+        setDeadline(soon,tomorrow,"Новый");
+        setDeadline(issued,yesterday,"Выдан");
+        assertEquals(2,db.overdueJobs(0).size());
+        assertEquals(overdue,db.overdueJobs(0).get(0).id);
+        assertEquals(dueToday,db.overdueJobs(0).get(1).id);
+        assertEquals(2,db.summary().dueJobs);
+        assertEquals(1,db.upcomingJobs(7,50).size());
+        assertEquals(soon,db.upcomingJobs(7,50).get(0).id);
+        assertNotNull(db.job(undated));
+    }
+
+    @Test public void overdueAndUpcomingRespectDateBoundaries() {
+        long clientId=client("Границы срока");
+        long day7=job(clientId,10000);
+        long day8=job(clientId,10000);
+        long yesterday=job(clientId,10000);
+        setDeadline(day7,java.time.LocalDate.now().plusDays(7).toString(),"Готов");
+        setDeadline(day8,java.time.LocalDate.now().plusDays(8).toString(),"Готов");
+        setDeadline(yesterday,java.time.LocalDate.now().minusDays(1).toString(),"Готов");
+        assertEquals(1,db.upcomingJobs(7,10).size());
+        assertEquals(day7,db.upcomingJobs(7,10).get(0).id);
+        assertEquals(yesterday,db.overdueJobs(0).get(0).id);
+        try {db.upcomingJobs(0,10);fail("zero day range");}
+        catch(IllegalArgumentException expected){}
+    }
+
+    private void setDeadline(long jobId,String deadline,String status) {
+        CrmStore.Job existing=db.job(jobId);
+        existing.dueDate=deadline;
+        existing.status=status;
+        db.saveJob(existing);
+    }
+
     @Test public void canImportPreviousSchemaOneBackup() throws Exception {
         long id=job(client("Старая версия"),2500);
         JSONObject old=new JSONObject(db.exportJson());
