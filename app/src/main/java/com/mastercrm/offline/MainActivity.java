@@ -129,7 +129,8 @@ public final class MainActivity extends Activity {
         String message=e.getMessage()==null?"Не удалось выполнить действие":e.getMessage();
         Toast.makeText(this,message,Toast.LENGTH_LONG).show();
     }
-    private void safe(Runnable r) {
+    private interface ThrowingRunnable { void run() throws Exception; }
+    private void safe(ThrowingRunnable r) {
         try {r.run();} catch(Exception e) { error(e); }
     }
     private void navigate(int i) {tab=i;page=0;search="";filter="";render();}
