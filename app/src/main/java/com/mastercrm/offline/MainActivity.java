@@ -56,6 +56,8 @@ public final class MainActivity extends Activity {
     private CrmStore store;
     private int tab = 0, page = 0;
     private String search = "", filter = "";
+    private String period = "month";
+    private boolean regularOnly=false;
     private boolean dark;
     private int bg, panel, text, sub, accent, stroke, green, red;
     private long pdfJobId;
@@ -70,6 +72,9 @@ public final class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
         if(state!=null)photoJobId=state.getLong("photoJobId",0);
         dark = getPreferences(MODE_PRIVATE).getBoolean("dark", false);
+        String saved=getPreferences(MODE_PRIVATE).getString("financial_period","month");
+        period=Arrays.asList("day","week","month","all").contains(saved)?saved:"month";
+        regularOnly=getPreferences(MODE_PRIVATE).getBoolean("regular_only",false);
         palette();
         render();
     }
@@ -211,14 +216,44 @@ public final class MainActivity extends Activity {
         base.addView(nav);
     }
 
+    private String periodName() {
+        switch(period) {
+            case "day":return "сегодня";
+            case "week":return "за неделю";
+            case "month":return "за месяц";
+            default:return "за всё время";
+        }
+    }
+    private void periodSelector(LinearLayout target) {
+        LinearLayout options=row();
+        String[] keys={"day","week","month","all"};
+        String[] labels={"День","Неделя","Месяц","Всё"};
+        for(int i=0;i<keys.length;i++) {
+            final String selected=keys[i];
+            Button b=button(labels[i],period.equals(selected),()->{
+                period=selected;
+                getPreferences(MODE_PRIVATE).edit().putString("financial_period",selected).apply();
+                render();
+            });
+            b.setContentDescription("Финансовый период: "+labels[i]);
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(46),1);
+            if(i>0)p.setMargins(dp(4),0,0,0);
+            options.addView(b,p);
+        }
+        target.addView(options);
+        space(target,12);
+    }
     private void dashboard() {
         CrmStore.Summary s=store.summary();
+        CrmStore.PeriodMetrics cash=store.periodMetrics(period);
+        periodSelector(body);
         LinearLayout hero=card(body);
-        hero.addView(label("Получено за всё время",14,false,sub));space(hero,5);
-        hero.addView(label(Money.format(s.totalIncome),31,true,green));
+        hero.addView(label("Получено "+periodName(),14,false,sub));space(hero,5);
+        hero.addView(label(Money.format(cash.income),31,true,green));
         space(hero,10);
-        line(hero,"Расходы",Money.format(s.totalExpense));
-        line(hero,"Кассовая прибыль",Money.format(s.totalIncome-s.totalExpense));
+        line(hero,"Расходы",Money.format(cash.expense));
+        line(hero,"Кассовая прибыль",Money.format(cash.cashProfit()));
+        line(hero,"Создано заказов "+periodName(),""+cash.ordersCreated);
         LinearLayout stats=card(body);heading(stats,"В работе");
         line(stats,"Активные заказы",""+s.activeJobs);
         line(stats,"Заказов сегодня",""+s.todayJobs);
@@ -293,12 +328,25 @@ public final class MainActivity extends Activity {
     }
     private void clients() {
         searchBar(body,"Имя или телефон клиента");
-        List<CrmStore.Client> list=store.clients(search,page);
-        if(list.isEmpty()) {empty("Клиенты не найдены");return;}
+        body.addView(button(regularOnly?"Постоянные клиенты · показать всех":
+                "Показать постоянных клиентов (от 2 заказов)",false,()->{
+            regularOnly=!regularOnly;
+            page=0;
+            getPreferences(MODE_PRIVATE).edit().putBoolean("regular_only",regularOnly).apply();
+            render();
+        }));
+        space(body,12);
+        List<CrmStore.Client> list=store.clients(search,page,regularOnly);
+        if(list.isEmpty()) {empty(regularOnly?"Постоянные клиенты не найдены":"Клиенты не найдены");return;}
         for(CrmStore.Client c:list) {
+            CrmStore.ClientMetrics m=store.clientMetrics(c.id);
             LinearLayout card=card(body);
-            card.addView(label(c.name,18,true,text));
+            card.addView(label(c.name+(m.regular()?" · ★":""),18,true,text));
             space(card,6);card.addView(label(c.phone.isEmpty()?"Без телефона":c.phone,14,false,sub));
+            space(card,6);
+            line(card,"Заказов",""+m.jobCount);
+            line(card,"Получено",Money.format(m.paid));
+            if(m.debt>0)line(card,"К оплате",Money.format(m.debt));
             card.setOnClickListener(v->clientDetails(c.id));
         }
         if(page>0)body.addView(button("← Предыдущая страница",false,()->{page--;render();}));
@@ -306,12 +354,21 @@ public final class MainActivity extends Activity {
     }
     private void finance() {
         CrmStore.Summary s=store.summary();
-        LinearLayout summary=card(body);heading(summary,"Денежный поток");
-        line(summary,"Поступления",Money.format(s.totalIncome));
-        line(summary,"Расходы",Money.format(s.totalExpense));
-        line(summary,"Кассовая прибыль",Money.format(s.totalIncome-s.totalExpense));
-        line(summary,"Долги клиентов",Money.format(s.totalDebt));
-        summary.addView(label("Показатели за всё время, без налогов и начислений.",12,false,sub));
+        CrmStore.PeriodMetrics cash=store.periodMetrics(period);
+        periodSelector(body);
+        LinearLayout summary=card(body);heading(summary,"Денежный поток "+periodName());
+        line(summary,"Поступления",Money.format(cash.income));
+        line(summary,"Расходы",Money.format(cash.expense));
+        line(summary,"Кассовая прибыль",Money.format(cash.cashProfit()));
+        line(summary,"Долги всех клиентов (на сегодня)",Money.format(s.totalDebt));
+        summary.addView(label("Движение денег за выбранный период. Долги — текущий остаток по всем заказам, без налогов.",12,false,sub));
+        LinearLayout debtors=card(body);heading(debtors,"Крупнейшие неоплаченные заказы");
+        List<CrmStore.Job> owed=store.debtors(10);
+        if(owed.isEmpty())debtors.addView(label("Нет непогашенных задолженностей",14,false,sub));
+        for(CrmStore.Job j:owed) {
+            debtors.addView(jobRow(j));
+            space(debtors,12);
+        }
         monthlyChart(body);
         LinearLayout add=card(body);
         add.addView(button("+ Новый расход",true,()->expenseEditor(0)));
@@ -486,6 +543,12 @@ public final class MainActivity extends Activity {
         d.addView(label(c.name,22,true,text));space(d,10);
         d.addView(label(c.phone,15,false,sub));space(d,12);
         if(!c.note.isEmpty()){d.addView(label(c.note,14,false,text));space(d,12);}
+        CrmStore.ClientMetrics stats=store.clientMetrics(c.id);
+        if(stats.regular())d.addView(label("★ Постоянный клиент",14,true,green));
+        line(d,"Всего заказов",""+stats.jobCount);
+        line(d,"Получено от клиента",Money.format(stats.paid));
+        line(d,"Текущий долг",Money.format(stats.debt));
+        space(d,9);
         d.addView(button("Изменить",false,()->clientEditor(c)));
         space(d,9);
         d.addView(button("+ Заказ для этого клиента",true,()->jobEditor(null,c.id)));
