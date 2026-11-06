@@ -329,6 +329,33 @@ public final class CrmStore extends SQLiteOpenHelper {
         return list;
     }
     /**
+     * One page of unpaid, non-archived orders sorted by outstanding balance.
+     * Uses the same literal search as the standard order list, but does not
+     * change any stored financial values or create an extra table.
+     */
+    public synchronized List<Job> unpaidJobs(String query,String filter,int page) {
+        List<Job> result=new ArrayList<>();
+        String like=literalContains(query);
+        String balance="(j.price-COALESCE((SELECT SUM(p.amount) FROM payments p " +
+                "WHERE p.job_id=j.id),0))";
+        boolean statusFilter=filter!=null&&!filter.isEmpty();
+        String sql=JOB_SELECT + "WHERE j.status!='Архив' AND "+balance+">0 " +
+                "AND (j.number LIKE ? ESCAPE '!' OR j.title LIKE ? ESCAPE '!' " +
+                "OR j.description LIKE ? ESCAPE '!' OR c.name LIKE ? ESCAPE '!' " +
+                "OR c.phone LIKE ? ESCAPE '!') " +
+                (statusFilter?"AND j.status=? ":"") +
+                "ORDER BY "+balance+" DESC, j.id DESC LIMIT ? OFFSET ?";
+        List<String> args=new ArrayList<>();
+        for(int i=0;i<5;i++)args.add(like);
+        if(statusFilter)args.add(filter);
+        args.add(""+PAGE_SIZE);args.add(""+(Math.max(0,page)*PAGE_SIZE));
+        try(Cursor c=getReadableDatabase().rawQuery(sql,args.toArray(new String[0]))) {
+            while(c.moveToNext())result.add(readJob(c));
+        }
+        return result;
+    }
+
+    /**
      * Read-only service history. Uses the newest job's price and description,
      * not an average price that could mislead the user. A literal search term
      * is escaped so percent/underscore are not interpreted as SQL wildcards.
