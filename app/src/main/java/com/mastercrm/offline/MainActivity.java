@@ -4,6 +4,10 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
+import android.media.ExifInterface;
 import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.pdf.PdfDocument;
@@ -18,6 +22,7 @@ import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -27,6 +32,8 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -41,7 +48,7 @@ import java.util.Locale;
 
 /** No Internet, accounts, permissions or third-party tracking. Android 8+. */
 public final class MainActivity extends Activity {
-    private static final int EXPORT_JSON = 21, IMPORT_JSON = 22, EXPORT_PDF = 23;
+    private static final int EXPORT_JSON = 21, IMPORT_JSON = 22, EXPORT_PDF = 23, PHOTO_BEFORE = 24, PHOTO_AFTER = 25;
     private static final String[] TABS = {"Обзор","Заказы","Клиенты","Финансы","Ещё"};
     private CrmStore store;
     private int tab = 0, page = 0;
@@ -49,14 +56,20 @@ public final class MainActivity extends Activity {
     private boolean dark;
     private int bg, panel, text, sub, accent, stroke, green, red;
     private long pdfJobId;
+    private long photoJobId;
     private LinearLayout body;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         store = new CrmStore(this);
+        if(state!=null)photoJobId=state.getLong("photoJobId",0);
         dark = getPreferences(MODE_PRIVATE).getBoolean("dark", false);
         palette();
         render();
+    }
+    @Override protected void onSaveInstanceState(Bundle out) {
+        out.putLong("photoJobId",photoJobId);
+        super.onSaveInstanceState(out);
     }
     @Override public void onDestroy() { if (store != null) store.close(); super.onDestroy(); }
     private int dp(float d) { return (int)(getResources().getDisplayMetrics().density * d + .5f); }
@@ -281,6 +294,7 @@ public final class MainActivity extends Activity {
         line(summary,"Кассовая прибыль",Money.format(s.totalIncome-s.totalExpense));
         line(summary,"Долги клиентов",Money.format(s.totalDebt));
         summary.addView(label("Показатели за всё время, без налогов и начислений.",12,false,sub));
+        monthlyChart(body);
         LinearLayout add=card(body);
         add.addView(button("+ Новый расход",true,()->expenseEditor(0)));
         LinearLayout items=card(body);heading(items,"Последние расходы");
@@ -292,6 +306,40 @@ public final class MainActivity extends Activity {
             space(items,8);
         }
     }
+    private void monthlyChart(LinearLayout parent) {
+        List<CrmStore.MonthMetrics> months=store.monthlyMetrics();
+        LinearLayout chart=card(parent);
+        heading(chart,"Поступления и расходы · 6 месяцев");
+        chart.addView(label("Реальные движения денег по месяцам. Возвраты уменьшают поступления.",12,false,sub));
+        space(chart,10);
+        long max=1;
+        for(CrmStore.MonthMetrics m:months)
+            max=Math.max(max,Math.max(Math.abs(m.income),Math.abs(m.expenses)));
+        for(CrmStore.MonthMetrics m:months) {
+            String month=java.time.YearMonth.parse(m.month)
+                    .format(DateTimeFormatter.ofPattern("LLLL yyyy",new Locale("ru","RU")));
+            chart.addView(label(month,14,true,text));
+            space(chart,5);
+            moneyBar(chart,"Поступления",m.income,max,green);
+            moneyBar(chart,"Расходы",m.expenses,max,red);
+            space(chart,12);
+        }
+    }
+    private void moneyBar(LinearLayout target,String name,long amount,long max,int color) {
+        line(target,name,Money.format(amount));
+        LinearLayout track=row();
+        track.setBackground(shape(bg,0,6));
+        float filled=(float)Math.max(0,amount) / (float)Math.max(1,max);
+        // Negative net receipts are shown numerically, not as a misleading positive bar.
+        float left=Math.min(100f,Math.max(0f,filled*100f));
+        View bar=new View(this);
+        bar.setBackground(shape(color,0,6));
+        track.addView(bar,new LinearLayout.LayoutParams(0,dp(8),left));
+        View rest=new View(this);
+        track.addView(rest,new LinearLayout.LayoutParams(0,dp(8),100f-left));
+        target.addView(track,new LinearLayout.LayoutParams(-1,dp(8)));
+    }
+
     private void settings() {
         LinearLayout c=card(body);heading(c,"Оформление");
         c.addView(button(dark?"Светлая тема":"Тёмная тема",false,()->{
@@ -487,6 +535,17 @@ public final class MainActivity extends Activity {
         space(d,8);
         d.addView(button("Заказ-наряд PDF",false,()->exportPdf(j.id)));
         space(d,14);
+        d.addView(label("Фотографии заказа",17,true,text));
+        space(d,7);
+        d.addView(label("Фото сохраняются только в приложении и включаются в JSON-копию.",12,false,sub));
+        space(d,8);
+        d.addView(button("+ Фото до работы",false,()->choosePhoto(j.id,true)));
+        space(d,6);
+        d.addView(button("+ Фото после работы",false,()->choosePhoto(j.id,false)));
+        List<CrmStore.Photo> photos=store.photos(j.id);
+        photoSection(d,"До работы",photos,"before",j.id);
+        photoSection(d,"После работы",photos,"after",j.id);
+        space(d,14);
         d.addView(label("История оплат",16,true,text));
         List<CrmStore.Payment> ps=store.payments(j.id);
         if(ps.isEmpty())d.addView(label("Платежей пока нет",13,false,sub));
@@ -540,6 +599,114 @@ public final class MainActivity extends Activity {
                 .withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(ts));
     }
 
+    /** Uses system document picker; no gallery permissions or network access. */
+    private void choosePhoto(long jobId,boolean before) {
+        photoJobId=jobId;
+        Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("image/*");
+        startActivityForResult(i,before?PHOTO_BEFORE:PHOTO_AFTER);
+    }
+    private void photoSection(LinearLayout parent,String title,List<CrmStore.Photo> photos,String kind,long jobId) {
+        parent.addView(label(title,14,true,sub));space(parent,5);
+        boolean present=false;
+        for(CrmStore.Photo p:photos) {
+            if(!kind.equals(p.kind))continue;
+            present=true;
+            LinearLayout item=row();
+            ImageView thumb=new ImageView(this);
+            thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            Bitmap b=BitmapFactory.decodeByteArray(p.jpeg,0,p.jpeg.length);
+            if(b==null)continue;
+            thumb.setImageBitmap(b);
+            thumb.setContentDescription("Открыть фото: "+title);
+            item.addView(thumb,new LinearLayout.LayoutParams(dp(102),dp(86)));
+            LinearLayout actions=column();actions.setPadding(dp(10),0,0,0);
+            actions.addView(button("Посмотреть",false,()->showPhoto(p)));
+            space(actions,5);
+            actions.addView(button("Удалить",false,()->alertBuilder()
+                    .setTitle("Удалить фотографию?")
+                    .setMessage("Фотография будет удалена из этого заказа.")
+                    .setNegativeButton("Отмена",null)
+                    .setPositiveButton("Удалить",(dialog,which)->safe(()->{
+                        store.removePhoto(p.id,jobId);
+                        render();jobDetails(jobId);
+                    })).show()));
+            item.addView(actions,new LinearLayout.LayoutParams(0,-2,1));
+            parent.addView(item);space(parent,8);
+        }
+        if(!present)parent.addView(label("Фотографий пока нет",12,false,sub));
+    }
+    private void showPhoto(CrmStore.Photo p) {
+        Bitmap b=BitmapFactory.decodeByteArray(p.jpeg,0,p.jpeg.length);
+        if(b==null)throw new IllegalArgumentException("Фотография повреждена");
+        ImageView large=new ImageView(this);
+        large.setImageBitmap(b);
+        large.setAdjustViewBounds(true);
+        large.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        alertBuilder().setTitle("Фото "+("before".equals(p.kind)?"до":"после"))
+                .setView(large).setPositiveButton("Закрыть",null).show();
+    }
+    private byte[] photoJpeg(Uri uri) {
+        byte[] raw=readBytes(uri,16*1024*1024);
+        BitmapFactory.Options options=new BitmapFactory.Options();
+        options.inJustDecodeBounds=true;
+        BitmapFactory.decodeByteArray(raw,0,raw.length,options);
+        if(options.outWidth<1||options.outHeight<1)
+            throw new IllegalArgumentException("Не удалось распознать изображение");
+        options.inJustDecodeBounds=false;
+        int sampling=1;
+        while(Math.max(options.outWidth,options.outHeight)/sampling>1600)
+            sampling*=2;
+        options.inSampleSize=sampling;
+        Bitmap bitmap=BitmapFactory.decodeByteArray(raw,0,raw.length,options);
+        if(bitmap==null)throw new IllegalArgumentException("Формат изображения не поддерживается");
+        try {
+            int rotation=0;
+            try {
+                ExifInterface exif=new ExifInterface(new ByteArrayInputStream(raw));
+                switch(exif.getAttributeInt(ExifInterface.TAG_ORIENTATION,ExifInterface.ORIENTATION_NORMAL)) {
+                    case ExifInterface.ORIENTATION_ROTATE_90: rotation=90;break;
+                    case ExifInterface.ORIENTATION_ROTATE_180: rotation=180;break;
+                    case ExifInterface.ORIENTATION_ROTATE_270: rotation=270;break;
+                }
+            } catch(Exception ignored) { /* No EXIF is legitimate. */ }
+            if(rotation!=0) {
+                Matrix m=new Matrix();m.postRotate(rotation);
+                Bitmap rotated=Bitmap.createBitmap(bitmap,0,0,bitmap.getWidth(),bitmap.getHeight(),m,true);
+                if(rotated!=bitmap) {bitmap.recycle();bitmap=rotated;}
+            }
+            int quality=86;
+            byte[] out;
+            do {
+                ByteArrayOutputStream buffer=new ByteArrayOutputStream();
+                if(!bitmap.compress(Bitmap.CompressFormat.JPEG,quality,buffer))
+                    throw new IllegalArgumentException("Не удалось обработать фото");
+                out=buffer.toByteArray();
+                quality-=10;
+            } while(out.length>2*1024*1024 && quality>=40);
+            if(out.length>2*1024*1024)
+                throw new IllegalArgumentException("Фото слишком большое после сжатия");
+            return out;
+        } finally {
+            bitmap.recycle();
+        }
+    }
+    private byte[] readBytes(Uri uri,int maxBytes) {
+        try(InputStream input=getContentResolver().openInputStream(uri);
+            ByteArrayOutputStream out=new ByteArrayOutputStream()) {
+            if(input==null)throw new IllegalArgumentException("Нет доступа к выбранному файлу");
+            byte[] buffer=new byte[8192];int n;
+            while((n=input.read(buffer))!=-1) {
+                if(out.size()+n>maxBytes)throw new IllegalArgumentException("Файл более 16 МБ");
+                out.write(buffer,0,n);
+            }
+            return out.toByteArray();
+        } catch(java.io.IOException e) {
+            throw new IllegalStateException("Ошибка чтения фото",e);
+        }
+    }
+
     private void exportPdf(long jobId) {
         pdfJobId=jobId;
         CrmStore.Job j=store.job(jobId);
@@ -553,11 +720,20 @@ public final class MainActivity extends Activity {
         super.onActivityResult(requestCode,resultCode,data);
         if(resultCode!=RESULT_OK||data==null||data.getData()==null)return;
         Uri uri=data.getData();
-        if(requestCode==IMPORT_JSON) {
+        if(requestCode==PHOTO_BEFORE||requestCode==PHOTO_AFTER) {
             safe(()->{
-                String input=readText(uri,30*1024*1024);
+                long id=photoJobId;
+                if(store.job(id)==null)throw new IllegalArgumentException("Заказ для фотографии не найден");
+                byte[] jpeg=photoJpeg(uri);
+                store.addPhoto(id,requestCode==PHOTO_BEFORE?"before":"after",jpeg);
+                Toast.makeText(this,"Фото сохранено",Toast.LENGTH_SHORT).show();
+                render();jobDetails(id);
+            });
+        } else if(requestCode==IMPORT_JSON) {
+            safe(()->{
+                String input=readText(uri,80*1024*1024);
                 alertBuilder().setTitle("Заменить все данные?")
-                    .setMessage("Будут удалены текущие клиенты, заказы, оплаты и расходы в этой Preview-версии. Сначала сохраните экспорт текущих данных. Продолжить?")
+                    .setMessage("Будут заменены текущие клиенты, заказы, оплаты, расходы и фотографии в Preview-версии. Сначала сохраните экспорт текущих данных. Продолжить?")
                     .setNegativeButton("Отмена",null)
                     .setPositiveButton("Заменить", (d,w)->safe(()->{
                         store.restoreJson(input);
