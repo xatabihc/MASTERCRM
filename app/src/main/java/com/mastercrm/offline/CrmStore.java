@@ -12,6 +12,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.time.LocalDate;
+import android.util.Base64;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -23,7 +24,8 @@ import java.util.List;
 public final class CrmStore extends SQLiteOpenHelper {
     public static final String DATABASE_NAME = "mastercrm_offline_preview.db";
     public static final String[] STATUS = {"Новый", "В работе", "Готов", "Выдан", "Архив"};
-    private static final int SCHEMA = 1;
+    private static final int SCHEMA = 2;
+    private static final int MAX_PHOTO_BYTES = 2 * 1024 * 1024;
     private static final int PAGE_SIZE = 100;
 
     public static class Client {
@@ -46,6 +48,11 @@ public final class CrmStore extends SQLiteOpenHelper {
     public static class Expense {
         public long id, jobId, amount, createdAt;
         public String category = "", note = "";
+    }
+    public static class Photo {
+        public long id, jobId, createdAt;
+        public String kind = "before";
+        public byte[] jpeg;
     }
     public static class Summary {
         public long activeJobs, totalClients, dueJobs, totalIncome, totalExpense, totalDebt, todayJobs;
@@ -81,10 +88,23 @@ public final class CrmStore extends SQLiteOpenHelper {
         db.execSQL("CREATE INDEX idx_jobs_status ON jobs(status)");
         db.execSQL("CREATE INDEX idx_payments_job ON payments(job_id)");
         db.execSQL("CREATE INDEX idx_expenses_job ON expenses(job_id)");
+        createPhotoTable(db);
+    }
+    private static void createPhotoTable(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE job_photos (" +
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                "job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE RESTRICT, " +
+                "kind TEXT NOT NULL CHECK(kind IN ('before','after')), " +
+                "image BLOB NOT NULL, created_at INTEGER NOT NULL)");
+        db.execSQL("CREATE INDEX idx_photos_job ON job_photos(job_id)");
     }
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        // Explicit migrations only: never silently drop user data.
-        throw new IllegalStateException("Нет безопасной миграции с " + oldVersion + " на " + newVersion);
+        if (oldVersion == 1 && newVersion >= 2) {
+            createPhotoTable(db); // Additive migration: no existing user tables are changed.
+            oldVersion = 2;
+        }
+        if (oldVersion != newVersion)
+            throw new IllegalStateException("Нет безопасной миграции с " + oldVersion + " на " + newVersion);
     }
 
     private static String clean(String s, int max) {
@@ -313,12 +333,54 @@ public final class CrmStore extends SQLiteOpenHelper {
                 null);
         return s;
     }
+    private static void validatePhoto(String kind, byte[] jpeg) {
+        if (!("before".equals(kind) || "after".equals(kind)))
+            throw new IllegalArgumentException("Неверный тип фотографии");
+        if (jpeg == null || jpeg.length < 4 || jpeg.length > MAX_PHOTO_BYTES
+                || (jpeg[0] & 0xff) != 0xff || (jpeg[1] & 0xff) != 0xd8
+                || (jpeg[jpeg.length-2] & 0xff) != 0xff
+                || (jpeg[jpeg.length-1] & 0xff) != 0xd9)
+            throw new IllegalArgumentException("Неверный JPEG или превышен лимит 2 МБ");
+    }
+    /** JPEG image bytes are stored privately in SQLite and included in JSON backups. */
+    public synchronized long addPhoto(long jobId, String kind, byte[] jpeg) {
+        validatePhoto(kind, jpeg);
+        if (job(jobId) == null) throw new IllegalArgumentException("Заказ не найден");
+        SQLiteDatabase db=getWritableDatabase();
+        long count=DatabaseUtils.longForQuery(db,
+                "SELECT COUNT(*) FROM job_photos WHERE job_id=? AND kind=?",
+                new String[]{"" + jobId,kind});
+        if(count >= 10)throw new IllegalArgumentException("Не более 10 фотографий каждого типа");
+        ContentValues v=new ContentValues();
+        v.put("job_id",jobId);v.put("kind",kind);v.put("image",jpeg);
+        v.put("created_at",System.currentTimeMillis());
+        return db.insertOrThrow("job_photos",null,v);
+    }
+    public synchronized List<Photo> photos(long jobId) {
+        List<Photo> result=new ArrayList<>();
+        try(Cursor c=getReadableDatabase().rawQuery(
+                "SELECT id,job_id,kind,image,created_at FROM job_photos WHERE job_id=? ORDER BY id",
+                new String[]{""+jobId})) {
+            while(c.moveToNext()){
+                Photo p=new Photo();
+                p.id=num(c,"id");p.jobId=num(c,"job_id");p.kind=col(c,"kind");
+                p.jpeg=c.getBlob(c.getColumnIndexOrThrow("image"));
+                p.createdAt=num(c,"created_at");result.add(p);
+            }
+        }
+        return result;
+    }
+    public synchronized boolean removePhoto(long photoId,long jobId) {
+        return getWritableDatabase().delete("job_photos","id=? AND job_id=?",
+                new String[]{""+photoId,""+jobId})==1;
+    }
+
     public synchronized String exportJson() throws JSONException {
         JSONObject root = new JSONObject();
         root.put("format", "mastercrm-offline-preview");
         root.put("schema", SCHEMA);
         root.put("exported_at", System.currentTimeMillis());
-        for (String table : new String[]{"clients","jobs","payments","expenses"}) {
+        for (String table : new String[]{"clients","jobs","payments","expenses","job_photos"}) {
             root.put(table, rows(table));
         }
         return root.toString(2);
@@ -332,6 +394,8 @@ public final class CrmStore extends SQLiteOpenHelper {
                     String name=c.getColumnName(i);
                     if(c.isNull(i)) obj.put(name, JSONObject.NULL);
                     else if(c.getType(i)==Cursor.FIELD_TYPE_INTEGER) obj.put(name,c.getLong(i));
+                    else if(c.getType(i)==Cursor.FIELD_TYPE_BLOB)
+                        obj.put(name,Base64.encodeToString(c.getBlob(i),Base64.NO_WRAP));
                     else obj.put(name,c.getString(i));
                 }
                 array.put(obj);
@@ -341,9 +405,12 @@ public final class CrmStore extends SQLiteOpenHelper {
     }
     public synchronized void restoreJson(String input) throws JSONException {
         JSONObject root = new JSONObject(input);
-        if (!"mastercrm-offline-preview".equals(root.optString("format")) || root.optInt("schema") != SCHEMA)
+        if (!"mastercrm-offline-preview".equals(root.optString("format"))
+                || (root.optInt("schema") != 1 && root.optInt("schema") != SCHEMA))
             throw new IllegalArgumentException("Файл другой версии или формата; существующие данные не изменены");
-        String[] tables={"clients","jobs","payments","expenses"};
+        String[] tables={"clients","jobs","payments","expenses","job_photos"};
+        // Schema 1 backups have no images and can still be safely imported.
+        if(root.optInt("schema")==1)root.put("job_photos",new JSONArray());
         for (String table : tables) {
             JSONArray items=root.getJSONArray(table);
             if(items.length()>100000) throw new IllegalArgumentException("Слишком большой файл резервной копии");
@@ -351,6 +418,7 @@ public final class CrmStore extends SQLiteOpenHelper {
         SQLiteDatabase db=getWritableDatabase();
         db.beginTransaction();
         try {
+            db.delete("job_photos",null,null);
             db.delete("payments",null,null);
             db.delete("expenses",null,null);
             db.delete("jobs",null,null);
@@ -366,11 +434,20 @@ public final class CrmStore extends SQLiteOpenHelper {
                         case "clients": fields=new String[]{"id","name","phone","note","created_at"}; break;
                         case "jobs": fields=new String[]{"id","number","client_id","title","description","status","price","due_date","created_at"}; break;
                         case "payments": fields=new String[]{"id","job_id","amount","note","created_at"}; break;
-                        default: fields=new String[]{"id","job_id","amount","category","note","created_at"};
+                        case "expenses": fields=new String[]{"id","job_id","amount","category","note","created_at"}; break;
+                        default: fields=new String[]{"id","job_id","kind","image","created_at"};
                     }
                     for (String field:fields) {
                         if (!item.has(field)) throw new JSONException("Отсутствует поле " + field + " в " + table);
                         if (item.isNull(field)) v.putNull(field);
+                        else if (field.equals("image")) {
+                            String raw=item.getString(field);
+                            if(raw.length() > ((MAX_PHOTO_BYTES+2)/3)*4+8)
+                                throw new IllegalArgumentException("Фотография слишком большая");
+                            byte[] bytes=Base64.decode(raw,Base64.DEFAULT);
+                            validatePhoto(item.getString("kind"),bytes);
+                            v.put(field,bytes);
+                        }
                         else if (field.equals("id") || field.equals("client_id") || field.equals("job_id")
                             || field.equals("price") || field.equals("amount") || field.equals("created_at"))
                             v.put(field,item.getLong(field));
@@ -378,6 +455,18 @@ public final class CrmStore extends SQLiteOpenHelper {
                     }
                     db.insertOrThrow(table,null,v);
                 }
+            }
+            // Reject corrupt/oversized or fabricated backups, preserving old data by rollback.
+            try(Cursor c=db.rawQuery(
+                    "SELECT job_id,kind,COUNT(*) AS n FROM job_photos GROUP BY job_id,kind HAVING n>10",
+                    null)) {
+                if(c.moveToFirst())throw new IllegalArgumentException("Слишком много фотографий в резервной копии");
+            }
+            try(Cursor c=db.rawQuery(
+                    "SELECT id FROM payments WHERE amount=0 UNION ALL " +
+                    "SELECT id FROM jobs WHERE price<0 UNION ALL SELECT id FROM expenses WHERE amount<=0",
+                    null)){
+                if(c.moveToFirst())throw new IllegalArgumentException("Некорректные суммы в резервной копии");
             }
             // Integrity checks still inside transaction.
             try (Cursor c=db.rawQuery("PRAGMA foreign_key_check",null)) {
