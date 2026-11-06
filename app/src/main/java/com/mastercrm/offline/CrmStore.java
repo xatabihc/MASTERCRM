@@ -431,6 +431,45 @@ public final class CrmStore extends SQLiteOpenHelper {
         }
         return list;
     }
+    /**
+     * Optional one-tap workflow. No skipping stages and no transition out of a
+     * delivered/archived order. A fully paid delivered order becomes archived,
+     * just like the existing manual editor.
+     */
+    public static String nextQuickStatus(String current, boolean fullyPaid) {
+        if ("Новый".equals(current)) return "В работе";
+        if ("В работе".equals(current)) return "Готов";
+        if ("Готов".equals(current)) return fullyPaid ? "Архив" : "Выдан";
+        return null;
+    }
+
+    /**
+     * Change ONLY the status. Never rewrite a potentially stale order form
+     * (price, client, description, deadline or finances). Transactional CAS
+     * keeps the status check and the update together.
+     */
+    public synchronized String advanceJobStatus(long jobId) {
+        SQLiteDatabase db=getWritableDatabase();
+        db.beginTransaction();
+        try {
+            Job current=job(jobId);
+            if(current==null)throw new IllegalArgumentException("Заказ не найден");
+            String next=nextQuickStatus(current.status,current.paid==current.price);
+            if(next==null)throw new IllegalStateException(
+                    "Для этого статуса нет быстрого перехода");
+            ContentValues values=new ContentValues();
+            values.put("status",next);
+            int changed=db.update("jobs",values,"id=? AND status=?",
+                    new String[]{""+jobId,current.status});
+            if(changed!=1)throw new IllegalStateException(
+                    "Статус заказа изменился. Откройте карточку заново");
+            db.setTransactionSuccessful();
+            return next;
+        } finally {
+            db.endTransaction();
+        }
+    }
+
     /** Duplicate an order without transferring its payments or expenses. */
     public synchronized long duplicateJob(long jobId) {
         Job existing = job(jobId);

@@ -791,6 +791,23 @@ public final class MainActivity extends Activity {
         line(d,"Доход после расходов",Money.format(j.paid-j.cost));
         if(!j.dueDate.isEmpty())line(d,"Срок",j.dueDate);
         space(d,8);
+        String nextStatus=CrmStore.nextQuickStatus(j.status,j.paid==j.price);
+        if(nextStatus!=null) {
+            d.addView(button("Следующий этап: "+nextStatus,true,()->{
+                alertBuilder().setTitle("Подтвердить смену статуса")
+                        .setMessage("Заказ "+j.number+": "+j.status+" → "+nextStatus
+                                +"\nИзменятся только статус и связанные списки. "
+                                +"Оплаты и суммы останутся прежними.")
+                        .setNegativeButton("Отмена",null)
+                        .setPositiveButton("Подтвердить",(confirm,which)->safe(()->{
+                            store.advanceJobStatus(j.id);
+                            closeJobDialog();
+                            render();
+                            jobDetails(j.id);
+                        })).show();
+            }));
+            space(d,8);
+        }
         d.addView(button("Редактировать заказ",false,()->{
             closeJobDialog();jobEditor(j,0);
         }));
