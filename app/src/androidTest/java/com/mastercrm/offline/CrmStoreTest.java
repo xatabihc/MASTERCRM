@@ -411,6 +411,19 @@ public class CrmStoreTest {
         catch(IllegalArgumentException expected){}
     }
 
+    @Test public void paginatesMoreThanOneHundredUpcomingOrders() {
+        long clientId=client("Много сроков");
+        String tomorrow=java.time.LocalDate.now().plusDays(1).toString();
+        for(int i=0;i<105;i++) {
+            long id=job(clientId,10000+i);
+            setDeadline(id,tomorrow,"В работе");
+        }
+        assertEquals(100,db.upcomingJobsPage(7,0).size());
+        assertEquals(5,db.upcomingJobsPage(7,1).size());
+        assertEquals(0,db.upcomingJobsPage(7,2).size());
+        assertEquals(5,db.upcomingJobs(7,5).size());
+    }
+
     private void setDeadline(long jobId,String deadline,String status) {
         CrmStore.Job existing=db.job(jobId);
         existing.dueDate=deadline;
