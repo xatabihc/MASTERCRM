@@ -66,6 +66,13 @@ public final class StreamCrmArchive {
         zip.write(bytes);
     }
     public static void write(CrmStore store,OutputStream target)throws IOException {
+        // CrmStore's public mutators are synchronized on the store instance.
+        // Hold that same lock for the whole snapshot, including ZIP completion.
+        synchronized(store) {
+            writeInternal(store,target);
+        }
+    }
+    private static void writeInternal(CrmStore store,OutputStream target)throws IOException {
         SQLiteDatabase db=store.getReadableDatabase();
         Counter limit=new Counter();
         db.beginTransactionNonExclusive();
@@ -221,7 +228,37 @@ public final class StreamCrmArchive {
      * been read. Wrapping it in a non-closing InputStream prevents ZipInputStream
      * from prematurely ending the authentication check.
      */
+    public static final class VerificationResult {
+        public final long clients, jobs, payments, expenses, photos;
+        private VerificationResult(SQLiteDatabase db) {
+            clients=DatabaseUtils.longForQuery(db,"SELECT COUNT(*) FROM clients",null);
+            jobs=DatabaseUtils.longForQuery(db,"SELECT COUNT(*) FROM jobs",null);
+            payments=DatabaseUtils.longForQuery(db,"SELECT COUNT(*) FROM payments",null);
+            expenses=DatabaseUtils.longForQuery(db,"SELECT COUNT(*) FROM expenses",null);
+            photos=DatabaseUtils.longForQuery(db,"SELECT COUNT(*) FROM job_photos",null);
+        }
+    }
+
+    /** Test an encrypted .mcrm5 archive without committing any change to the live database.
+     * Data is temporarily inserted within a single SQLite transaction and ALWAYS rolled
+     * back, even when verification succeeds. All CRM operations share this same lock.
+     */
+    public static VerificationResult verify(CrmStore store,InputStream authenticated)
+            throws IOException {
+        synchronized(store) {
+            return process(store,authenticated,false);
+        }
+    }
+
+    /** Restore an authenticated stream and commit only after full verification. */
     public static void restore(CrmStore store,InputStream authenticated)throws IOException {
+        synchronized(store) {
+            process(store,authenticated,true);
+        }
+    }
+
+    private static VerificationResult process(CrmStore store,InputStream authenticated,
+                                              boolean commit)throws IOException {
         Counter limit=new Counter();
         SQLiteDatabase db=store.getWritableDatabase();
         FilterInputStream nonclosing=new FilterInputStream(authenticated){
@@ -274,7 +311,11 @@ public final class StreamCrmArchive {
             byte[] buffer=new byte[8192];
             while(authenticated.read(buffer)!=-1) { /* authenticate trailer */ }
             validateDb(db);
-            db.setTransactionSuccessful();
+            VerificationResult result=new VerificationResult(db);
+            // Verification mode intentionally omits setTransactionSuccessful():
+            // SQLite rolls the entire trial import back on exit.
+            if(commit)db.setTransactionSuccessful();
+            return result;
         } finally {
             db.endTransaction();
         }
