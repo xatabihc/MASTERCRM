@@ -28,6 +28,11 @@ jobs:
       - uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools'
+      - name: Validate maintenance and upgrade-check scripts
+        run: |
+          python3 -m py_compile tools/test_signed_upgrade.py
+          bash -n tools/run-android-ui-ci.sh
+          bash -n tools/audit-local-mastercrm.sh
       - name: Install required Android SDK packages
         run: |
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
