@@ -832,12 +832,12 @@ public final class MainActivity extends Activity {
                     } catch(Exception ex) {
                         runOnUiThread(()->error(ex));
                     } finally {
-                        Arrays.fill(workerPassword,'\\0');
+                        Arrays.fill(workerPassword,'\0');
                     }
                 },"mastercrm-encrypted-backup").start();
             } finally {
-                if(pass!=null)Arrays.fill(pass,'\\0');
-                if(verify!=null)Arrays.fill(verify,'\\0');
+                if(pass!=null)Arrays.fill(pass,'\0');
+                if(verify!=null)Arrays.fill(verify,'\0');
             }
         });
     }
