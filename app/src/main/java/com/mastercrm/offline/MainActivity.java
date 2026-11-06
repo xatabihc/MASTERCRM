@@ -43,12 +43,13 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 
 /** No Internet, accounts, permissions or third-party tracking. Android 8+. */
 public final class MainActivity extends Activity {
-    private static final int EXPORT_JSON = 21, IMPORT_JSON = 22, EXPORT_PDF = 23, PHOTO_BEFORE = 24, PHOTO_AFTER = 25;
+    private static final int EXPORT_JSON = 21, IMPORT_JSON = 22, EXPORT_PDF = 23, PHOTO_BEFORE = 24, PHOTO_AFTER = 25, EXPORT_SECURE = 26, IMPORT_SECURE = 27;
     private static final String[] TABS = {"Обзор","Заказы","Клиенты","Финансы","Ещё"};
     private CrmStore store;
     private int tab = 0, page = 0;
@@ -346,22 +347,39 @@ public final class MainActivity extends Activity {
             dark=!dark;getPreferences(MODE_PRIVATE).edit().putBoolean("dark",dark).apply();render();
         }));
         LinearLayout backup=card(body);heading(backup,"Резервные копии");
-        backup.addView(label("Формат JSON. Копия содержит персональные данные клиентов: храните файл в защищённом месте.",13,false,sub));
+        backup.addView(label("Рекомендуется защищённая копия .mcrm с паролем: шифрование AES-256-GCM. Пароль не сохраняется и не восстанавливается.",13,false,sub));
         space(backup,12);
-        backup.addView(button("Экспорт данных",true,()->{
+        backup.addView(button("Создать защищённую копию",true,()->{
+            Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("application/octet-stream");
+            i.putExtra(Intent.EXTRA_TITLE,"mastercrm-"+CrmStore.today()+BackupCrypto.EXTENSION);
+            startActivityForResult(i,EXPORT_SECURE);
+        }));
+        space(backup,8);
+        backup.addView(button("Восстановить защищённую копию",false,()->{
+            Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("*/*");
+            startActivityForResult(i,IMPORT_SECURE);
+        }));
+        space(backup,16);
+        backup.addView(label("Совместимость: старый JSON без шифрования. Такой файл содержит имена, телефоны, суммы и фотографии открытым текстом.",13,false,sub));
+        space(backup,10);
+        backup.addView(button("Экспорт JSON (без защиты)",false,()->{
             Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);
             i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("application/json");
             i.putExtra(Intent.EXTRA_TITLE,"mastercrm-backup-"+CrmStore.today()+".json");
             startActivityForResult(i,EXPORT_JSON);
         }));
         space(backup,8);
-        backup.addView(button("Восстановить из JSON",false,()->{
+        backup.addView(button("Импорт JSON (без защиты)",false,()->{
             Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
             i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("*/*");
             startActivityForResult(i,IMPORT_JSON);
         }));
         LinearLayout about=card(body);heading(about,"О приложении");
-        about.addView(label("MasterCRM Offline Preview · 0.1.0",14,true,text));
+        about.addView(label("MasterCRM Offline Preview · 0.3.0",14,true,text));
         space(about,8);
         about.addView(label("Работает без сети, серверов и платных сервисов. Отдельный пакет не заменяет установленную MasterCRM 0.9.4.",13,false,sub));
         space(about,6);
@@ -729,29 +747,110 @@ public final class MainActivity extends Activity {
                 Toast.makeText(this,"Фото сохранено",Toast.LENGTH_SHORT).show();
                 render();jobDetails(id);
             });
+        } else if(requestCode==EXPORT_SECURE) {
+            encryptedBackupPrompt(uri,true);
+        } else if(requestCode==IMPORT_SECURE) {
+            alertBuilder().setTitle("Заменить данные из защищённой копии?")
+                .setMessage("Текущие клиенты, заказы, оплаты, расходы и фотографии будут заменены после расшифровки. Сначала сохраните резервную копию текущих данных.")
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Продолжить",(dialog,which)->encryptedBackupPrompt(uri,false))
+                .show();
         } else if(requestCode==IMPORT_JSON) {
-            safe(()->{
-                String input=readText(uri,80*1024*1024);
-                alertBuilder().setTitle("Заменить все данные?")
-                    .setMessage("Будут заменены текущие клиенты, заказы, оплаты, расходы и фотографии в Preview-версии. Сначала сохраните экспорт текущих данных. Продолжить?")
-                    .setNegativeButton("Отмена",null)
-                    .setPositiveButton("Заменить", (d,w)->safe(()->{
+            alertBuilder().setTitle("Заменить все данные?")
+                .setMessage("Это незашифрованный формат. Текущие клиенты, заказы, оплаты, расходы и фотографии будут заменены. Сначала сохраните текущую копию.")
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Заменить",(d,w)->new Thread(()->{
+                    try {
+                        String input=readText(uri,80*1024*1024);
                         store.restoreJson(input);
-                        Toast.makeText(this,"Резервная копия восстановлена",Toast.LENGTH_LONG).show();
-                        render();
-                    })).show();
-            });
+                        runOnUiThread(()->{
+                            Toast.makeText(this,"Резервная копия восстановлена",Toast.LENGTH_LONG).show();
+                            render();
+                        });
+                    } catch(Exception e) {
+                        runOnUiThread(()->error(e));
+                    }
+                },"mastercrm-json-import").start()).show();
         } else if(requestCode==EXPORT_JSON) {
-            safe(()->{
-                String json=store.exportJson();
-                try(OutputStream out=getContentResolver().openOutputStream(uri,"w")) {
-                    if(out==null)throw new IllegalStateException("Не удалось открыть файл");
-                    out.write(json.getBytes(StandardCharsets.UTF_8));
-                }catch(java.io.IOException e){throw new IllegalStateException(e);}
-                Toast.makeText(this,"Экспорт завершён",Toast.LENGTH_SHORT).show();
-            });
+            new Thread(()->{
+                try {
+                    String json=store.exportJson();
+                    try(OutputStream out=getContentResolver().openOutputStream(uri,"w")) {
+                        if(out==null)throw new IllegalStateException("Не удалось открыть файл");
+                        out.write(json.getBytes(StandardCharsets.UTF_8));
+                    }
+                    runOnUiThread(()->Toast.makeText(this,
+                            "JSON экспорт завершён",Toast.LENGTH_SHORT).show());
+                } catch(Exception e) {
+                    runOnUiThread(()->error(e));
+                }
+            },"mastercrm-json-export").start();
         } else if(requestCode==EXPORT_PDF) safe(()->writePdf(uri,pdfJobId));
     }
+    /** All encryption work runs off the UI thread; password is never persisted. */
+    private void encryptedBackupPrompt(Uri uri,boolean exporting) {
+        LinearLayout form=form();
+        form.addView(label(exporting
+            ? "Создайте пароль длиной от 12 символов. Если потеряете его, восстановить копию невозможно."
+            : "Введите пароль защищённой резервной копии.",13,false,sub));
+        space(form,12);
+        EditText pwd=field(form,"Пароль","",
+                InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        pwd.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
+        EditText repeat=null;
+        if(exporting) {
+            repeat=field(form,"Повторите пароль","",
+                    InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
+            repeat.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
+        }
+        final EditText repeatField=repeat;
+        dialog(exporting?"Защитить резервную копию":"Расшифровать копию",form,
+                exporting?"Сохранить":"Восстановить",()->{
+            char[] pass=pwd.getText().toString().toCharArray();
+            char[] verify=repeatField==null?null:repeatField.getText().toString().toCharArray();
+            try {
+                if(pass.length<12||pass.length>1024)
+                    throw new IllegalArgumentException("Нужно от 12 до 1024 символов");
+                if(verify!=null&&!Arrays.equals(pass,verify))
+                    throw new IllegalArgumentException("Пароли не совпадают");
+                // Ownership of the only active copy of pass transfers to this worker.
+                final char[] workerPassword=pass;
+                pass=null;
+                pwd.setText("");
+                if(repeatField!=null)repeatField.setText("");
+                new Thread(()->{
+                    try {
+                        if(exporting) {
+                            byte[] data=BackupCrypto.encrypt(store.exportJson(),workerPassword);
+                            try(OutputStream out=getContentResolver().openOutputStream(uri,"w")) {
+                                if(out==null)throw new IllegalStateException("Не удалось открыть файл");
+                                out.write(data);
+                            } finally {Arrays.fill(data,(byte)0);}
+                        } else {
+                            byte[] data=readBytes(uri,BackupCrypto.MAX_BACKUP_BYTES);
+                            try {
+                                String json=BackupCrypto.decrypt(data,workerPassword);
+                                store.restoreJson(json);
+                            } finally {Arrays.fill(data,(byte)0);}
+                        }
+                        runOnUiThread(()->{
+                            Toast.makeText(this,exporting?"Защищённая копия сохранена":
+                                    "Копия успешно восстановлена",Toast.LENGTH_LONG).show();
+                            if(!exporting)render();
+                        });
+                    } catch(Exception ex) {
+                        runOnUiThread(()->error(ex));
+                    } finally {
+                        Arrays.fill(workerPassword,'\0');
+                    }
+                },"mastercrm-encrypted-backup").start();
+            } finally {
+                if(pass!=null)Arrays.fill(pass,'\0');
+                if(verify!=null)Arrays.fill(verify,'\0');
+            }
+        });
+    }
+
     private String readText(Uri uri,int maxBytes) {
         StringBuilder out=new StringBuilder();
         try(InputStream input=getContentResolver().openInputStream(uri);
