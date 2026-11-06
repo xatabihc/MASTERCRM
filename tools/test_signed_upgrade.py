@@ -68,7 +68,11 @@ def tap(node):
 
 def find(root, attr, value):
     for node in root.iter("node"):
-        if node.attrib.get(attr) == value:
+        actual = node.attrib.get(attr, "")
+        # Android materializes standard dialog button labels in uppercase on
+        # some platform themes/locales (e.g. "СОХРАНИТЬ", not "Сохранить").
+        # Accessibility content-descriptions remain exact identifiers.
+        if actual == value or (attr == "text" and actual.casefold() == value.casefold()):
             return node
     return None
 
