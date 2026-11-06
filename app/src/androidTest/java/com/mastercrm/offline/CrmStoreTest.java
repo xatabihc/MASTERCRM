@@ -283,6 +283,7 @@ public class CrmStoreTest {
         }
         assertEquals(1005,db.summary().totalClients);
         assertEquals(100,db.clients("",0).size());
+        assertEquals(100,db.clientOverviews("",0,false).size());
         assertEquals(100,db.clients("",9).size());
         assertEquals(5,db.clients("",10).size());
         assertEquals(1,db.clients("Покупатель 1004",0).size());
@@ -310,6 +311,13 @@ public class CrmStoreTest {
         assertEquals(regular,repeat.get(0).id);
         assertEquals(1,db.clients("Постоянный",0,true).size());
         assertEquals(0,db.clients("Первый визит",0,true).size());
+        java.util.List<CrmStore.ClientOverview> overview=db.clientOverviews("",0,true);
+        assertEquals(1,overview.size());
+        assertEquals(regular,overview.get(0).id);
+        assertEquals(2,overview.get(0).jobCount);
+        assertEquals(50000,overview.get(0).paid);
+        assertEquals(2000,overview.get(0).debt);
+        assertTrue(overview.get(0).regular());
     }
 
     @Test public void overdueReceivablesShowLargestUnpaidOrdersFirst() {
