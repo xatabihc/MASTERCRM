@@ -756,26 +756,35 @@ public final class MainActivity extends Activity {
                 .setPositiveButton("Продолжить",(dialog,which)->encryptedBackupPrompt(uri,false))
                 .show();
         } else if(requestCode==IMPORT_JSON) {
-            safe(()->{
-                String input=readText(uri,80*1024*1024);
-                alertBuilder().setTitle("Заменить все данные?")
-                    .setMessage("Будут заменены текущие клиенты, заказы, оплаты, расходы и фотографии в Preview-версии. Сначала сохраните экспорт текущих данных. Продолжить?")
-                    .setNegativeButton("Отмена",null)
-                    .setPositiveButton("Заменить", (d,w)->safe(()->{
+            alertBuilder().setTitle("Заменить все данные?")
+                .setMessage("Это незашифрованный формат. Текущие клиенты, заказы, оплаты, расходы и фотографии будут заменены. Сначала сохраните текущую копию.")
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Заменить",(d,w)->new Thread(()->{
+                    try {
+                        String input=readText(uri,80*1024*1024);
                         store.restoreJson(input);
-                        Toast.makeText(this,"Резервная копия восстановлена",Toast.LENGTH_LONG).show();
-                        render();
-                    })).show();
-            });
+                        runOnUiThread(()->{
+                            Toast.makeText(this,"Резервная копия восстановлена",Toast.LENGTH_LONG).show();
+                            render();
+                        });
+                    } catch(Exception e) {
+                        runOnUiThread(()->error(e));
+                    }
+                },"mastercrm-json-import").start()).show();
         } else if(requestCode==EXPORT_JSON) {
-            safe(()->{
-                String json=store.exportJson();
-                try(OutputStream out=getContentResolver().openOutputStream(uri,"w")) {
-                    if(out==null)throw new IllegalStateException("Не удалось открыть файл");
-                    out.write(json.getBytes(StandardCharsets.UTF_8));
-                }catch(java.io.IOException e){throw new IllegalStateException(e);}
-                Toast.makeText(this,"Экспорт завершён",Toast.LENGTH_SHORT).show();
-            });
+            new Thread(()->{
+                try {
+                    String json=store.exportJson();
+                    try(OutputStream out=getContentResolver().openOutputStream(uri,"w")) {
+                        if(out==null)throw new IllegalStateException("Не удалось открыть файл");
+                        out.write(json.getBytes(StandardCharsets.UTF_8));
+                    }
+                    runOnUiThread(()->Toast.makeText(this,
+                            "JSON экспорт завершён",Toast.LENGTH_SHORT).show());
+                } catch(Exception e) {
+                    runOnUiThread(()->error(e));
+                }
+            },"mastercrm-json-export").start();
         } else if(requestCode==EXPORT_PDF) safe(()->writePdf(uri,pdfJobId));
     }
     /** All encryption work runs off the UI thread; password is never persisted. */
