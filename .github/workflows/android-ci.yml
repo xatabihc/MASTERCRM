@@ -18,12 +18,16 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Install Android SDK 35
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      # GitHub's Ubuntu runner already provides Android command-line tools.
+      # Do not invoke android-actions/setup-android@v3: it tries to install
+      # the removed legacy SDK package "tools" and fails on current runners.
+      - name: Install required Android SDK packages
+        run: |
+          command -v sdkmanager
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - name: Unit tests and lint
         run: gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
       - name: Build preview APK
