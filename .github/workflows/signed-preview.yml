@@ -1,6 +1,13 @@
-name: Signed preview APK (manual and opt-in)
+name: Signed preview APK
+# After the first successful manual signing, releases are automatic on main.
+# No secrets are exposed to pull_request builds or untrusted branches.
 on:
   workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'app/**'
+      - '.github/workflows/signed-preview.yml'
 
 permissions:
   contents: read
@@ -62,6 +69,14 @@ jobs:
           APK="app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
+          # Pin the actual certificate used for the first signed v0.5 release.
+          # A changed key would prevent updates and can strand users' local data.
+          EXPECTED_SHA256="8a0568717d5e5404c02d321ca6b4e9df830abba7ad0ca5cd4e799850e77e372f"
+          ACTUAL_SHA256="$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
+          if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then
+            echo "::error::Signing certificate changed; refusing to publish incompatible update."
+            exit 1
+          fi
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='com.mastercrm.offline.preview'"
           if "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" | grep -F 'android.permission.INTERNET'; then
             echo "::error::Signed preview APK requested INTERNET permission"
