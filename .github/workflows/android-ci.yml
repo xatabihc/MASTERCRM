@@ -73,10 +73,11 @@ jobs:
       - name: Run real SQLite integration tests on fresh Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 34
+          target: google_apis
           arch: x86_64
           profile: pixel_4
-          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
           disable-animations: true
           script: bash tools/run-android-ui-ci.sh
       - name: Save emulator screenshot for visual review
