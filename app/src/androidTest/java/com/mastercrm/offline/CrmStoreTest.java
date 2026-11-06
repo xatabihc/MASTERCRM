@@ -81,6 +81,55 @@ public class CrmStoreTest {
         assertEquals(4,db.jobs("","",0).size());
     }
 
+    @Test public void quickStatusPreservesPriceClientDeadlineAndPayments() {
+        long clientId=client("Статусный заказ");
+        CrmStore.Job draft=new CrmStore.Job();
+        draft.clientId=clientId;
+        draft.title="Ремонт экрана";
+        draft.description="Дорогие запчасти";
+        draft.dueDate="2026-12-20";
+        draft.price=45000;
+        long id=db.saveJob(draft);
+        db.addExpense(id,3000,"Материалы","Экран");
+        db.addPayment(id,12000,"Аванс");
+
+        assertEquals("В работе",CrmStore.nextQuickStatus("Новый",false));
+        assertEquals("В работе",db.advanceJobStatus(id));
+        assertEquals("Готов",db.advanceJobStatus(id));
+        assertEquals("Выдан",db.advanceJobStatus(id));
+        assertNull(CrmStore.nextQuickStatus("Выдан",false));
+        try {db.advanceJobStatus(id);fail("Terminal status");}
+        catch(IllegalStateException expected) {}
+
+        CrmStore.Job result=db.job(id);
+        assertEquals(clientId,result.clientId);
+        assertEquals("Ремонт экрана",result.title);
+        assertEquals("Дорогие запчасти",result.description);
+        assertEquals("2026-12-20",result.dueDate);
+        assertEquals(45000,result.price);
+        assertEquals(12000,result.paid);
+        assertEquals(3000,result.cost);
+        assertEquals(1,db.payments(id).size());
+        assertTrue(db.photos(id).isEmpty()); // no extra photos created
+        assertEquals("Выдан",result.status);
+        db.addPayment(id,33000,"Остаток");
+        assertEquals("Архив",db.job(id).status);
+        assertNull(CrmStore.nextQuickStatus("Архив",true));
+    }
+
+    @Test public void quickStatusFullyPaidFinishesInArchive() {
+        long id=job(client("Оплачен"),24000);
+        db.addPayment(id,24000,"Полная оплата");
+        assertEquals("В работе",db.advanceJobStatus(id));
+        assertEquals("Готов",db.advanceJobStatus(id));
+        assertEquals("Архив",db.advanceJobStatus(id));
+        assertEquals(24000,db.job(id).paid);
+        assertEquals(24000,db.job(id).price);
+        assertEquals(1,db.payments(id).size());
+        try {db.advanceJobStatus(id);fail("Archive is final");}
+        catch(IllegalStateException expected) {}
+    }
+
     @Test public void createsJobsPaysRefundsAndDuplicatesWithoutDoubleCounting() {
         long c=client("Тестовый клиент");
         long id=job(c,30000);
