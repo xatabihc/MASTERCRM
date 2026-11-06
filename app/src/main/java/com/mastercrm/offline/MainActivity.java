@@ -340,9 +340,15 @@ public final class MainActivity extends Activity {
     private LinearLayout form() {
         LinearLayout c=column();c.setPadding(dp(14),dp(10),dp(14),dp(4));return c;
     }
+    private AlertDialog.Builder alertBuilder() {
+        return new AlertDialog.Builder(this, dark
+                ? android.R.style.Theme_Material_Dialog_Alert
+                : android.R.style.Theme_Material_Light_Dialog_Alert);
+    }
+
     private void dialog(String title,LinearLayout content,String positive,Runnable action) {
         ScrollView scroll=new ScrollView(this);scroll.addView(content);
-        AlertDialog d=new AlertDialog.Builder(this)
+        AlertDialog d=alertBuilder()
             .setTitle(title).setView(scroll).setNegativeButton("Отмена",null)
             .setPositiveButton(positive,null).create();
         d.setOnShowListener(it->d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
@@ -372,14 +378,14 @@ public final class MainActivity extends Activity {
         d.addView(button("Изменить",false,()->clientEditor(c)));
         space(d,9);
         d.addView(button("+ Заказ для этого клиента",true,()->jobEditor(null,c.id)));
-        new AlertDialog.Builder(this).setTitle("Карточка клиента")
+        alertBuilder().setTitle("Карточка клиента")
                 .setView(d).setPositiveButton("Закрыть",null).show();
     }
     private void jobEditor(CrmStore.Job existing,long preferredClientId) {
         CrmStore.Job job=existing==null?new CrmStore.Job():existing;
         List<CrmStore.Client> clients=store.clients("",0);
         if(clients.isEmpty()){
-            new AlertDialog.Builder(this).setMessage("Сначала добавьте клиента")
+            alertBuilder().setMessage("Сначала добавьте клиента")
                     .setPositiveButton("Добавить", (d,w)->clientEditor(null))
                     .setNegativeButton("Отмена",null).show();
             return;
@@ -443,7 +449,7 @@ public final class MainActivity extends Activity {
             if(!p.note.isEmpty())d.addView(label(p.note,12,false,sub));
         }
         ScrollView scroll=new ScrollView(this);scroll.addView(d);
-        new AlertDialog.Builder(this).setTitle(j.number).setView(scroll)
+        alertBuilder().setTitle(j.number).setView(scroll)
                 .setPositiveButton("Закрыть",null).show();
     }
     private void paymentEditor(long id,boolean refund) {
@@ -504,7 +510,7 @@ public final class MainActivity extends Activity {
         if(requestCode==IMPORT_JSON) {
             safe(()->{
                 String input=readText(uri,30*1024*1024);
-                new AlertDialog.Builder(this).setTitle("Заменить все данные?")
+                alertBuilder().setTitle("Заменить все данные?")
                     .setMessage("Будут удалены текущие клиенты, заказы, оплаты и расходы в этой Preview-версии. Сначала сохраните экспорт текущих данных. Продолжить?")
                     .setNegativeButton("Отмена",null)
                     .setPositiveButton("Заменить", (d,w)->safe(()->{
