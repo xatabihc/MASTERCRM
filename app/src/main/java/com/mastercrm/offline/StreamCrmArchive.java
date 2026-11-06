@@ -59,13 +59,15 @@ public final class StreamCrmArchive {
     private static void entry(ZipOutputStream zip,String name)throws IOException {
         zip.putNextEntry(new ZipEntry(name));
     }
-    private static void writeLine(ZipOutputStream zip,String line)throws IOException{
+    private static void writeLine(ZipOutputStream zip,String line,Counter limit)throws IOException{
         byte[] bytes=(line+"\n").getBytes(StandardCharsets.UTF_8);
         if(bytes.length>MAX_LINE)throw new IOException("Запись слишком длинная: "+bytes.length);
+        limit.add(bytes.length);
         zip.write(bytes);
     }
     public static void write(CrmStore store,OutputStream target)throws IOException {
         SQLiteDatabase db=store.getReadableDatabase();
+        Counter limit=new Counter();
         db.beginTransactionNonExclusive();
         try(ZipOutputStream zip=new ZipOutputStream(target,StandardCharsets.UTF_8)) {
             entry(zip,"manifest.json");
@@ -75,7 +77,7 @@ public final class StreamCrmArchive {
                 manifest.put("schema",2);
                 manifest.put("created_at",System.currentTimeMillis());
             } catch(JSONException ex){throw new IOException("Ошибка создания заголовка",ex);}
-            writeLine(zip,manifest.toString());
+            writeLine(zip,manifest.toString(),limit);
             zip.closeEntry();
 
             for(String table:TABLES) {
@@ -92,7 +94,7 @@ public final class StreamCrmArchive {
                                 else row.put(key,c.getString(i));
                             }
                         } catch(JSONException ex){throw new IOException("Ошибка кодирования записи",ex);}
-                        writeLine(zip,row.toString());
+                        writeLine(zip,row.toString(),limit);
                     }
                 }
                 zip.closeEntry();
@@ -107,6 +109,7 @@ public final class StreamCrmArchive {
                     byte[] jpeg=c.getBlob(3);
                     checkPhoto(jpeg,kind);
                     entry(zip,"photos/"+id+"_"+jobId+"_"+kind+"_"+when+".jpg");
+                    limit.add(jpeg.length);
                     zip.write(jpeg);
                     zip.closeEntry();
                 }
