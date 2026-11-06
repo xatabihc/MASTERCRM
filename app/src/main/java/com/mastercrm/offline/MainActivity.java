@@ -2,6 +2,7 @@ package com.mastercrm.offline;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.DatePickerDialog;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Bitmap;
@@ -45,7 +46,6 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 
@@ -56,6 +56,7 @@ public final class MainActivity extends Activity {
     private CrmStore store;
     private int tab = 0, page = 0;
     private String search = "", filter = "";
+    private int dueMode = 0; // 0=all; 1=overdue; 2=next seven days
     private String period = "month";
     private boolean regularOnly=false;
     private boolean dark;
@@ -157,7 +158,10 @@ public final class MainActivity extends Activity {
     private void safe(ThrowingRunnable r) {
         try {r.run();} catch(Exception e) { error(e); }
     }
-    private void navigate(int i) {tab=i;page=0;search="";filter="";render();}
+    private void navigate(int i) {tab=i;page=0;search="";filter="";dueMode=0;render();}
+    private void showDueOrders(int mode) {
+        tab=1;page=0;search="";filter="";dueMode=mode;render();
+    }
     private void render() {
         palette();
         LinearLayout base=column();
@@ -260,6 +264,19 @@ public final class MainActivity extends Activity {
         line(stats,"Срок сегодня или просрочен",""+s.dueJobs);
         line(stats,"Клиенты",""+s.totalClients);
         line(stats,"Неоплаченные суммы",Money.format(s.totalDebt));
+        if(s.dueJobs>0) {
+            stats.addView(button("Просрочено или срок сегодня: "+s.dueJobs,true,
+                    ()->showDueOrders(1)));
+            space(stats,8);
+        }
+        List<CrmStore.Job> upcoming=store.upcomingJobs(7,5);
+        if(!upcoming.isEmpty()) {
+            LinearLayout soon=card(body);heading(soon,"Ближайшие 7 дней");
+            for(CrmStore.Job j:upcoming) {
+                soon.addView(jobRow(j));space(soon,9);
+            }
+            soon.addView(button("Все ближайшие заказы",false,()->showDueOrders(2)));
+        }
         LinearLayout quick=card(body);heading(quick,"Быстрые действия");
         quick.addView(button("Новый заказ",true,()->jobEditor(null,0)));
         space(quick,8);
@@ -285,6 +302,30 @@ public final class MainActivity extends Activity {
         space(target,13);
     }
     private void jobs() {
+        LinearLayout dueSelector=card(body);
+        heading(dueSelector,"Сроки заказов");
+        dueSelector.addView(button(dueMode==1?"✓ Просрочено и сегодня":"Просрочено и сегодня",
+                dueMode==1,()->showDueOrders(dueMode==1?0:1)));
+        space(dueSelector,6);
+        dueSelector.addView(button(dueMode==2?"✓ Следующие 7 дней":"Следующие 7 дней",
+                dueMode==2,()->showDueOrders(dueMode==2?0:2)));
+        if(dueMode!=0) {
+            List<CrmStore.Job> dated=dueMode==1?store.overdueJobs(page):
+                    store.upcomingJobsPage(7,page);
+            if(dated.isEmpty()){
+                LinearLayout empty=card(body);
+                empty.addView(label("Заказов с таким сроком нет",15,false,sub));
+            } else {
+                for(CrmStore.Job j:dated) {
+                    LinearLayout c=card(body);c.addView(jobRow(j));
+                }
+                if(page>0)body.addView(button("← Предыдущая страница",false,
+                        ()->{page--;render();}));
+                if(dated.size()==100)body.addView(button("Следующая страница →",false,
+                        ()->{page++;render();}));
+            }
+            return;
+        }
         searchBar(body,"Номер, заказ, клиент или телефон");
         LinearLayout filters=card(body);
         Spinner spin=spinner(new String[]{"Все",CrmStore.STATUS[0],CrmStore.STATUS[1],CrmStore.STATUS[2],CrmStore.STATUS[3],CrmStore.STATUS[4]});
@@ -313,6 +354,13 @@ public final class MainActivity extends Activity {
         x.addView(top);space(x,6);
         x.addView(label(j.title,18,true,text));
         space(x,4);x.addView(label(j.clientName,13,false,sub));space(x,8);
+        if(!j.dueDate.isEmpty()) {
+            boolean late=j.dueDate.compareTo(CrmStore.today())<=0
+                    && !"Архив".equals(j.status) && !"Выдан".equals(j.status);
+            x.addView(label("Срок: "+j.dueDate+(late?" · требуется внимание":""),
+                    12,late,late?red:sub));
+            space(x,6);
+        }
         LinearLayout sums=row();
         sums.addView(label(Money.format(j.price),15,true,text),new LinearLayout.LayoutParams(0,-2,1));
         sums.addView(label("Долг: "+Money.format(Money.outstanding(j.price,j.paid)),12,false,sub));
@@ -617,6 +665,20 @@ public final class MainActivity extends Activity {
         EditText description=field(f,"Описание, материалы и заметки",job.description,InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         EditText price=field(f,"Стоимость, ₽",java.math.BigDecimal.valueOf(job.price,2).toPlainString(),InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
         EditText due=field(f,"Срок: ГГГГ-ММ-ДД (необязательно)",job.dueDate,InputType.TYPE_CLASS_DATETIME);
+        due.setContentDescription("Срок заказа");
+        f.addView(button("Выбрать срок в календаре",false,()->{
+            java.time.LocalDate initialDate;
+            try {initialDate=java.time.LocalDate.parse(due.getText().toString().trim());}
+            catch(Exception ignored) {initialDate=java.time.LocalDate.now();}
+            DatePickerDialog picker=new DatePickerDialog(this,
+                    (view,year,month,day)->due.setText(
+                            java.time.LocalDate.of(year,month+1,day).toString()),
+                    initialDate.getYear(),initialDate.getMonthValue()-1,initialDate.getDayOfMonth());
+            picker.show();
+        }));
+        space(f,6);
+        f.addView(button("Очистить срок",false,()->due.setText("")));
+        space(f,10);
         f.addView(label("Статус",13,true,sub));Spinner status=spinner(CrmStore.STATUS);
         int statusIndex=Arrays.asList(CrmStore.STATUS).indexOf(job.status);
         status.setSelection(Math.max(0,statusIndex));f.addView(status);
