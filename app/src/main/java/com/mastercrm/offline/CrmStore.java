@@ -448,6 +448,31 @@ public final class CrmStore extends SQLiteOpenHelper {
         }
         return array;
     }
+    private static void validateImportedFinancials(SQLiteDatabase db) {
+        // Payment rows are signed (refunds may be negative), but final balance
+        // per job must be between zero and agreed price, inclusive.
+        try (Cursor c=db.rawQuery(
+                "SELECT j.id FROM jobs j WHERE " +
+                "COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.job_id=j.id),0) < 0 " +
+                "OR COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.job_id=j.id),0) > j.price " +
+                "LIMIT 1",null)) {
+            if(c.moveToFirst())
+                throw new IllegalArgumentException(
+                        "В резервной копии есть заказы с переплатой или отрицательной оплатой");
+        }
+        try(Cursor c=db.rawQuery(
+                "SELECT id FROM clients WHERE trim(name)='' " +
+                "UNION ALL SELECT id FROM jobs WHERE trim(title)='' OR trim(number)='' " +
+                "OR status NOT IN ('Новый','В работе','Готов','Выдан','Архив') " +
+                "LIMIT 1",null)){
+            if(c.moveToFirst())
+                throw new IllegalArgumentException(
+                        "В резервной копии есть записи с неверными именами или статусами");
+        }
+        // Existing Preview 0.1 and 0.2 backups might contain manually archived
+        // unpaid orders. Keep them importable; the visible debt is still correct.
+    }
+
     public synchronized void restoreJson(String input) throws JSONException {
         JSONObject root = new JSONObject(input);
         if (!"mastercrm-offline-preview".equals(root.optString("format"))
@@ -513,6 +538,10 @@ public final class CrmStore extends SQLiteOpenHelper {
                     null)){
                 if(c.moveToFirst())throw new IllegalArgumentException("Некорректные суммы в резервной копии");
             }
+            // Payment totals and basic record semantics must be valid BEFORE commit.
+            // A crafted JSON backup must never introduce a negative debt, overpayment,
+            // unsupported status, or empty client/description while replacing real data.
+            validateImportedFinancials(db);
             // Integrity checks still inside transaction.
             try (Cursor c=db.rawQuery("PRAGMA foreign_key_check",null)) {
                 if(c.moveToFirst()) throw new IllegalArgumentException("Нарушены ссылки между записями");
