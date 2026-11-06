@@ -21,12 +21,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      # GitHub's Ubuntu runner already provides Android command-line tools.
-      # Do not invoke android-actions/setup-android@v3: it tries to install
-      # the removed legacy SDK package "tools" and fails on current runners.
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
       - name: Install required Android SDK packages
         run: |
-          command -v sdkmanager
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - name: Unit tests and lint
         run: gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
