@@ -5,7 +5,7 @@
     <application
         android:allowBackup="false"
         android:usesCleartextTraffic="false"
-        android:label="MasterCRM Preview"
+        android:label="MasterCRM Offline"
         android:icon="@drawable/ic_logo"
         android:theme="@style/AppTheme"
         android:supportsRtl="true">
