@@ -1,7 +1,7 @@
 name: Android offline preview
 on:
   push:
-    branches: [ main, 'develop/**' ]
+    branches: [ main ]
   pull_request:
   workflow_dispatch:
 
