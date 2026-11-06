@@ -615,6 +615,18 @@ public final class MainActivity extends Activity {
         LinearLayout d=form();
         d.addView(label(c.name,22,true,text));space(d,10);
         d.addView(label(c.phone,15,false,sub));space(d,12);
+        if(!c.phone.trim().isEmpty()) {
+            d.addView(button("Набрать номер клиента",false,()->{
+                Intent dial=new Intent(Intent.ACTION_DIAL,
+                        Uri.fromParts("tel",c.phone.trim(),null));
+                try {
+                    startActivity(dial); // Opens dialer; never starts a call automatically.
+                } catch(ActivityNotFoundException | SecurityException ex) {
+                    error(new IllegalStateException("На телефоне нет доступной звонилки",ex));
+                }
+            }));
+            space(d,12);
+        }
         if(!c.note.isEmpty()){d.addView(label(c.note,14,false,text));space(d,12);}
         CrmStore.ClientMetrics stats=store.clientMetrics(c.id);
         if(stats.regular())d.addView(label("★ Постоянный клиент",14,true,green));
@@ -667,6 +679,47 @@ public final class MainActivity extends Activity {
         d.show();load.run();
     }
 
+    /** Picks a previously performed service without creating or changing any order. */
+    private void servicePicker(EditText title,EditText description,EditText price) {
+        LinearLayout form=form();
+        form.addView(label("Берём данные из последнего заказа с таким названием. Перед сохранением проверьте стоимость.",13,false,sub));
+        space(form,10);
+        EditText query=field(form,"Найти услугу","",InputType.TYPE_CLASS_TEXT);
+        LinearLayout results=column();
+        form.addView(results);
+        ScrollView scroll=new ScrollView(this);
+        scroll.addView(form);
+        AlertDialog dialog=alertBuilder().setTitle("Работы из истории")
+                .setView(scroll).setNegativeButton("Отмена",null).create();
+        Runnable load=()->{
+            results.removeAllViews();
+            List<CrmStore.ServiceSuggestion> items=store.serviceSuggestions(
+                    query.getText().toString(),40);
+            if(items.isEmpty()) {
+                results.addView(label("Похожих работ пока нет. Можно ввести новую вручную.",13,false,sub));
+            }
+            for(CrmStore.ServiceSuggestion item:items) {
+                String text=item.title+" · "+Money.format(item.price)+
+                        " · заказов: "+item.uses;
+                results.addView(button(text,false,()->{
+                    title.setText(item.title);
+                    description.setText(item.description);
+                    price.setText(java.math.BigDecimal.valueOf(item.price,2).toPlainString());
+                    dialog.dismiss();
+                }));
+                space(results,6);
+            }
+            if(items.size()==40)results.addView(label("Показаны 40 последних видов работ. Уточните название для поиска.",12,false,sub));
+        };
+        query.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s,int start,int count,int after){}
+            @Override public void onTextChanged(CharSequence s,int start,int before,int count){load.run();}
+            @Override public void afterTextChanged(android.text.Editable s){}
+        });
+        dialog.show();
+        load.run();
+    }
+
     private void jobEditor(CrmStore.Job existing,long preferredClientId) {
         CrmStore.Job job=existing==null?new CrmStore.Job():existing;
         List<CrmStore.Client> clients=store.clients("",0);
@@ -690,6 +743,12 @@ public final class MainActivity extends Activity {
         EditText title=field(f,"Работа / услуга",job.title,InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         EditText description=field(f,"Описание, материалы и заметки",job.description,InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         EditText price=field(f,"Стоимость, ₽",java.math.BigDecimal.valueOf(job.price,2).toPlainString(),InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        if(job.id==0) {
+            space(f,8);
+            f.addView(button("Подставить услугу из прошлых заказов",false,
+                    ()->servicePicker(title,description,price)));
+            space(f,8);
+        }
         EditText due=field(f,"Срок: ГГГГ-ММ-ДД (необязательно)",job.dueDate,InputType.TYPE_CLASS_DATETIME);
         due.setContentDescription("Срок заказа");
         f.addView(button("Выбрать срок в календаре",false,()->{
