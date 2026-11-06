@@ -158,6 +158,63 @@ public class CrmStoreTest {
         assertNotNull(db.job(id));
         assertEquals(1,db.clients("",0).size());
     }
+    @Test public void rejectsOverpaymentInBackupWithoutChangingOldData() throws Exception {
+        long id=job(client("Оригинал"),10000);
+        db.addPayment(id,3000,"Аванс");
+        String original=db.exportJson();
+        JSONObject forged=new JSONObject(original);
+        forged.getJSONArray("payments").getJSONObject(0).put("amount",10001);
+        try {
+            db.restoreJson(forged.toString());
+            fail("Overpayment in imported backup must be rejected");
+        } catch(IllegalArgumentException expected) {}
+        assertEquals(3000,db.job(id).paid);
+        assertEquals(7000,db.summary().totalDebt);
+        assertEquals(1,db.clients("",0).size());
+    }
+
+    @Test public void rejectsNegativeNetPaymentInBackupWithoutChangingOldData() throws Exception {
+        long id=job(client("Сохранить оплату"),10000);
+        db.addPayment(id,3200,"Платёж");
+        JSONObject forged=new JSONObject(db.exportJson());
+        forged.getJSONArray("payments").getJSONObject(0).put("amount",-400);
+        try {
+            db.restoreJson(forged.toString());
+            fail("Negative payment total must not be accepted");
+        } catch(IllegalArgumentException expected) {}
+        assertEquals(3200,db.job(id).paid);
+    }
+
+    @Test public void invalidStatusAndBlankNameCannotReplaceCurrentData() throws Exception {
+        long id=job(client("Настоящий клиент"),1200);
+        JSONObject forged=new JSONObject(db.exportJson());
+        forged.getJSONArray("jobs").getJSONObject(0).put("status","Несуществующий статус");
+        try { db.restoreJson(forged.toString()); fail("status"); }
+        catch(IllegalArgumentException expected) {}
+        assertEquals("Новый",db.job(id).status);
+
+        forged=new JSONObject(db.exportJson());
+        forged.getJSONArray("clients").getJSONObject(0).put("name"," ");
+        try { db.restoreJson(forged.toString()); fail("blank name"); }
+        catch(IllegalArgumentException expected) {}
+        assertEquals("Настоящий клиент",db.client(db.job(id).clientId).name);
+    }
+
+    @Test public void searchingAndPagingWorkWithMoreThanOneThousandClients() {
+        for(int i=0;i<1005;i++) {
+            CrmStore.Client client=new CrmStore.Client();
+            client.name="Покупатель " + i;
+            client.phone="+7900" + String.format(java.util.Locale.ROOT,"%07d",i);
+            db.saveClient(client);
+        }
+        assertEquals(1005,db.summary().totalClients);
+        assertEquals(100,db.clients("",0).size());
+        assertEquals(100,db.clients("",9).size());
+        assertEquals(5,db.clients("",10).size());
+        assertEquals(1,db.clients("Покупатель 1004",0).size());
+        assertEquals(1,db.clients("0001004",0).size());
+    }
+
     @Test public void canImportPreviousSchemaOneBackup() throws Exception {
         long id=job(client("Старая версия"),2500);
         JSONObject old=new JSONObject(db.exportJson());
