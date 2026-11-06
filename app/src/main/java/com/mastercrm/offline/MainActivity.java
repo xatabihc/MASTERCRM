@@ -391,6 +391,31 @@ public final class MainActivity extends Activity {
         alertBuilder().setTitle("Карточка клиента")
                 .setView(scroll).setPositiveButton("Закрыть",null).show();
     }
+    /** Search all clients, not merely the first page; no cloud or permissions. */
+    private void clientPicker(long[] selected,TextView chosen) {
+        LinearLayout f=form();
+        EditText q=field(f,"Поиск клиента","",InputType.TYPE_CLASS_TEXT);
+        LinearLayout results=column();f.addView(results);
+        ScrollView scroll=new ScrollView(this);scroll.addView(f);
+        AlertDialog d=alertBuilder().setTitle("Выберите клиента")
+                .setView(scroll).setNegativeButton("Отмена",null).create();
+        Runnable load=()->{
+            results.removeAllViews();
+            List<CrmStore.Client> matches=store.clients(q.getText().toString().trim(),0);
+            if(matches.isEmpty())results.addView(label("Ничего не найдено",14,false,sub));
+            for(CrmStore.Client c:matches) {
+                Button candidate=button(c.name+(c.phone.isEmpty()?"":" · "+c.phone),false,()->{
+                    selected[0]=c.id;chosen.setText(c.name);d.dismiss();
+                });
+                results.addView(candidate);space(results,5);
+            }
+            if(matches.size()==100)results.addView(label(
+                    "Показаны первые 100. Уточните поиск для остальных.",12,false,sub));
+        };
+        f.addView(button("Найти",true,load));
+        d.show();load.run();
+    }
+
     private void jobEditor(CrmStore.Job existing,long preferredClientId) {
         CrmStore.Job job=existing==null?new CrmStore.Job():existing;
         List<CrmStore.Client> clients=store.clients("",0);
@@ -401,16 +426,16 @@ public final class MainActivity extends Activity {
             return;
         }
         LinearLayout f=form();
-        String[] names=new String[clients.size()];
-        int select=0;
         long desired=job.id>0?job.clientId:preferredClientId;
-        for(int i=0;i<clients.size();i++){
-            CrmStore.Client c=clients.get(i);
-            names[i]=c.name+(c.phone.isEmpty()?"":" · "+c.phone);
-            if(c.id==desired)select=i;
-        }
-        f.addView(label("Клиент",13,true,sub));Spinner clientSpin=spinner(names);
-        clientSpin.setSelection(select);f.addView(clientSpin);space(f,12);
+        CrmStore.Client initial=desired>0?store.client(desired):clients.get(0);
+        if(initial==null)initial=clients.get(0);
+        final long[] selectedClient={initial.id};
+        f.addView(label("Клиент",13,true,sub));
+        TextView chosen=label(initial.name,16,true,text);
+        f.addView(chosen);space(f,7);
+        f.addView(button("Выбрать клиента по имени или телефону",false,
+                ()->clientPicker(selectedClient,chosen)));
+        space(f,12);
         EditText title=field(f,"Работа / услуга",job.title,InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         EditText description=field(f,"Описание, материалы и заметки",job.description,InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         EditText price=field(f,"Стоимость, ₽",java.math.BigDecimal.valueOf(job.price,2).toPlainString(),InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
@@ -419,7 +444,7 @@ public final class MainActivity extends Activity {
         int statusIndex=Arrays.asList(CrmStore.STATUS).indexOf(job.status);
         status.setSelection(Math.max(0,statusIndex));f.addView(status);
         dialog(job.id==0?"Новый заказ":job.number, f,"Сохранить",()->{
-            job.clientId=clients.get(clientSpin.getSelectedItemPosition()).id;
+            job.clientId=selectedClient[0];
             job.title=title.getText().toString();job.description=description.getText().toString();
             job.price=Money.parse(price.getText().toString());job.dueDate=due.getText().toString().trim();
             job.status=CrmStore.STATUS[status.getSelectedItemPosition()];
