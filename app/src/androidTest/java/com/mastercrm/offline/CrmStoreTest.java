@@ -145,6 +145,80 @@ public class CrmStoreTest {
         java.util.Arrays.fill(password,'\0');
     }
 
+    private byte[] streamedBackup(char[] password)throws Exception {
+        java.io.ByteArrayOutputStream output=new java.io.ByteArrayOutputStream();
+        try(java.io.OutputStream secure=StreamBackupCrypto.encrypt(output,password)){
+            StreamCrmArchive.write(db,secure);
+        }
+        return output.toByteArray();
+    }
+
+    @Test public void streamedZipRoundTripRestoresClientsJobsPaymentsAndPhotos()throws Exception {
+        long client=client("Потоковая копия 500");
+        long id=job(client,99000);
+        db.addPayment(id,71000,"Аванс");
+        db.addExpense(id,1000,"Материалы","Ремонт");
+        byte[] image={(byte)0xff,(byte)0xd8,12,13,14,(byte)0xff,(byte)0xd9};
+        db.addPhoto(id,"before",image);
+        db.addPhoto(id,"after",image);
+        char[] password="Пароль-для-потокового-архива".toCharArray();
+        byte[] archive=streamedBackup(password);
+        assertTrue(archive.length>100);
+        long extra=job(client("Временная запись"),1500);
+        assertNotNull(db.job(extra));
+        try(java.io.InputStream clear=StreamBackupCrypto.decrypt(
+                new java.io.ByteArrayInputStream(archive),password)) {
+            StreamCrmArchive.restore(db,clear);
+        }
+        assertEquals(1,db.summary().totalClients);
+        assertEquals(1,db.jobs("","",0).size());
+        assertEquals(71000,db.job(id).paid);
+        assertEquals(1000,db.job(id).cost);
+        assertEquals(2,db.photos(id).size());
+        assertArrayEquals(image,db.photos(id).get(0).jpeg);
+        java.util.Arrays.fill(password,'\0');
+    }
+
+    @Test public void streamedArchiveWrongPasswordAndTruncationCannotReplaceDatabase()throws Exception {
+        long id=job(client("Сохранить после ошибки"),34500);
+        db.addPayment(id,5000,"");
+        char[] password="Проверочный-пароль-потоковой-копии".toCharArray();
+        byte[] archive=streamedBackup(password);
+        try(java.io.InputStream clear=StreamBackupCrypto.decrypt(
+                new java.io.ByteArrayInputStream(archive),
+                "неправильный-длинный-пароль".toCharArray())) {
+            StreamCrmArchive.restore(db,clear);
+            fail("Wrong password accepted");
+        }catch(java.io.IOException expected){}
+        assertEquals(5000,db.job(id).paid);
+        byte[] truncated=java.util.Arrays.copyOf(archive,archive.length-8);
+        try(java.io.InputStream clear=StreamBackupCrypto.decrypt(
+                new java.io.ByteArrayInputStream(truncated),password)) {
+            StreamCrmArchive.restore(db,clear);
+            fail("Truncated archive accepted");
+        }catch(java.io.IOException expected){}
+        assertEquals(5000,db.job(id).paid);
+        assertEquals(1,db.summary().totalClients);
+    }
+
+    @Test public void streamedArchiveSupportsThousandsOfClients()throws Exception {
+        for(int i=0;i<1102;i++){
+            CrmStore.Client c=new CrmStore.Client();
+            c.name="Клиент потока "+i;
+            db.saveClient(c);
+        }
+        char[] password="Длинный-потоковый-пароль-01234".toCharArray();
+        byte[] file=streamedBackup(password);
+        try(java.io.InputStream clear=StreamBackupCrypto.decrypt(
+                new java.io.ByteArrayInputStream(file),password)) {
+            StreamCrmArchive.restore(db,clear);
+        }
+        assertEquals(1102,db.summary().totalClients);
+        assertEquals(100,db.clients("",0).size());
+        assertEquals(2,db.clients("",11).size());
+        java.util.Arrays.fill(password,'\0');
+    }
+
     @Test public void malformedPhotoBackupDoesNotWipeExistingData() throws Exception {
         long id=job(client("Сохранить"),7800);
         String json=db.exportJson();
