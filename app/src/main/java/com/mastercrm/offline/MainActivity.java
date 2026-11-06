@@ -667,13 +667,13 @@ public final class MainActivity extends Activity {
         EditText due=field(f,"Срок: ГГГГ-ММ-ДД (необязательно)",job.dueDate,InputType.TYPE_CLASS_DATETIME);
         due.setContentDescription("Срок заказа");
         f.addView(button("Выбрать срок в календаре",false,()->{
-            java.time.LocalDate initial;
-            try {initial=java.time.LocalDate.parse(due.getText().toString().trim());}
-            catch(Exception ignored) {initial=java.time.LocalDate.now();}
+            java.time.LocalDate initialDate;
+            try {initialDate=java.time.LocalDate.parse(due.getText().toString().trim());}
+            catch(Exception ignored) {initialDate=java.time.LocalDate.now();}
             DatePickerDialog picker=new DatePickerDialog(this,
                     (view,year,month,day)->due.setText(
                             java.time.LocalDate.of(year,month+1,day).toString()),
-                    initial.getYear(),initial.getMonthValue()-1,initial.getDayOfMonth());
+                    initialDate.getYear(),initialDate.getMonthValue()-1,initialDate.getDayOfMonth());
             picker.show();
         }));
         space(f,6);
