@@ -294,6 +294,7 @@ public final class MainActivity extends Activity {
         line(summary,"Кассовая прибыль",Money.format(s.totalIncome-s.totalExpense));
         line(summary,"Долги клиентов",Money.format(s.totalDebt));
         summary.addView(label("Показатели за всё время, без налогов и начислений.",12,false,sub));
+        monthlyChart(body);
         LinearLayout add=card(body);
         add.addView(button("+ Новый расход",true,()->expenseEditor(0)));
         LinearLayout items=card(body);heading(items,"Последние расходы");
@@ -305,6 +306,40 @@ public final class MainActivity extends Activity {
             space(items,8);
         }
     }
+    private void monthlyChart(LinearLayout parent) {
+        List<CrmStore.MonthMetrics> months=store.monthlyMetrics();
+        LinearLayout chart=card(parent);
+        heading(chart,"Поступления и расходы · 6 месяцев");
+        chart.addView(label("Реальные движения денег по месяцам. Возвраты уменьшают поступления.",12,false,sub));
+        space(chart,10);
+        long max=1;
+        for(CrmStore.MonthMetrics m:months)
+            max=Math.max(max,Math.max(Math.abs(m.income),Math.abs(m.expenses)));
+        for(CrmStore.MonthMetrics m:months) {
+            String month=java.time.YearMonth.parse(m.month)
+                    .format(DateTimeFormatter.ofPattern("LLLL yyyy",new Locale("ru","RU")));
+            chart.addView(label(month,14,true,text));
+            space(chart,5);
+            moneyBar(chart,"Поступления",m.income,max,green);
+            moneyBar(chart,"Расходы",m.expenses,max,red);
+            space(chart,12);
+        }
+    }
+    private void moneyBar(LinearLayout target,String name,long amount,long max,int color) {
+        line(target,name,Money.format(amount));
+        LinearLayout track=row();
+        track.setBackground(shape(bg,0,6));
+        float filled=(float)Math.max(0,amount) / (float)Math.max(1,max);
+        // Negative net receipts are shown numerically, not as a misleading positive bar.
+        float left=Math.min(100f,Math.max(0f,filled*100f));
+        View bar=new View(this);
+        bar.setBackground(shape(color,0,6));
+        track.addView(bar,new LinearLayout.LayoutParams(0,dp(8),left));
+        View rest=new View(this);
+        track.addView(rest,new LinearLayout.LayoutParams(0,dp(8),100f-left));
+        target.addView(track,new LinearLayout.LayoutParams(-1,dp(8)));
+    }
+
     private void settings() {
         LinearLayout c=card(body);heading(c,"Оформление");
         c.addView(button(dark?"Светлая тема":"Тёмная тема",false,()->{
