@@ -122,6 +122,29 @@ public class CrmStoreTest {
         assertArrayEquals(tinyJpeg,db.photos(id).get(0).jpeg);
         assertEquals(1000,db.job(id).paid);
     }
+    @Test public void protectedBackupRoundTripOnAndroidSQLite() throws Exception {
+        long id=job(client("Защищённый клиент"),26750);
+        db.addPayment(id,17500,"Аванс");
+        byte[] jpeg={(byte)0xff,(byte)0xd8,0x01,0x02,(byte)0xff,(byte)0xd9};
+        db.addPhoto(id,"after",jpeg);
+        String oldJson=db.exportJson();
+        char[] password="Тестовый-пароль-длина-24".toCharArray();
+        byte[] encrypted=BackupCrypto.encrypt(oldJson,password);
+        assertEquals(oldJson,BackupCrypto.decrypt(encrypted,password));
+        long extra=job(client("Временный"),1000);
+        assertNotNull(db.job(extra));
+        try {
+            BackupCrypto.decrypt(encrypted,"очень-другой-пароль".toCharArray());
+            fail("Wrong password must not be accepted");
+        } catch(IllegalArgumentException expected) {}
+        assertNotNull(db.job(extra));
+        db.restoreJson(BackupCrypto.decrypt(encrypted,password));
+        assertEquals(1,db.jobs("","",0).size());
+        assertEquals(17500,db.job(id).paid);
+        assertArrayEquals(jpeg,db.photos(id).get(0).jpeg);
+        java.util.Arrays.fill(password,'\0');
+    }
+
     @Test public void malformedPhotoBackupDoesNotWipeExistingData() throws Exception {
         long id=job(client("Сохранить"),7800);
         String json=db.exportJson();
