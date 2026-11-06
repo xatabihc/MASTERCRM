@@ -316,6 +316,43 @@ public final class CrmStore extends SQLiteOpenHelper {
         }
         return list;
     }
+    /**
+     * Open orders with a due date today or in the past, oldest deadlines first.
+     * Delivered and archived orders are excluded. Pagination prevents
+     * extremely large dashboards from exhausting UI memory.
+     */
+    public synchronized List<Job> overdueJobs(int page) {
+        List<Job> result=new ArrayList<>();
+        String sql=JOB_SELECT+
+                "WHERE j.due_date<>'' AND j.due_date<=? " +
+                "AND j.status NOT IN ('Выдан','Архив') " +
+                "ORDER BY j.due_date ASC, j.id ASC LIMIT ? OFFSET ?";
+        try(Cursor c=getReadableDatabase().rawQuery(sql,
+                new String[]{today(),""+PAGE_SIZE,""+(Math.max(0,page)*PAGE_SIZE)})) {
+            while(c.moveToNext())result.add(readJob(c));
+        }
+        return result;
+    }
+
+    /**
+     * Open orders due after today within the next N calendar days, inclusive.
+     * Does not confuse dates with their creation timestamp or payment status.
+     */
+    public synchronized List<Job> upcomingJobs(int days,int limit) {
+        if(days<1||days>365)throw new IllegalArgumentException("Неверный период");
+        List<Job> result=new ArrayList<>();
+        String sql=JOB_SELECT+
+                "WHERE j.due_date>? AND j.due_date<=? " +
+                "AND j.status NOT IN ('Выдан','Архив') " +
+                "ORDER BY j.due_date ASC,j.id ASC LIMIT ?";
+        try(Cursor c=getReadableDatabase().rawQuery(sql,new String[]{
+                today(),LocalDate.now().plusDays(days).toString(),
+                ""+Math.max(1,Math.min(limit,100))})) {
+            while(c.moveToNext())result.add(readJob(c));
+        }
+        return result;
+    }
+
     /** Outstanding receivables sorted by unpaid balance, excluding archived jobs. */
     public synchronized List<Job> debtors(int limit) {
         List<Job> result=new ArrayList<>();
