@@ -96,7 +96,7 @@ public class MainActivityUiTest {
                 .perform(scrollTo(),click()));
         withLauncherRecovery(()->onView(withContentDescription("Найти услугу"))
                 .perform(replaceText(uniqueTitle),closeSoftKeyboard()));
-        withLauncherRecovery(()->onView(withText(org.hamcrest.Matchers.containsString(uniqueTitle)))
+        withLauncherRecovery(()->onView(withText(uniqueTitle+" · "+Money.format(215000)+" · заказов: 1"))
                 .perform(scrollTo(),click()));
         withLauncherRecovery(()->onView(withContentDescription("Работа / услуга"))
                 .check(matches(withText(uniqueTitle))));
