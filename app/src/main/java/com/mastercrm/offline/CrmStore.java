@@ -339,15 +339,21 @@ public final class CrmStore extends SQLiteOpenHelper {
      * Does not confuse dates with their creation timestamp or payment status.
      */
     public synchronized List<Job> upcomingJobs(int days,int limit) {
+        return upcomingJobsRange(days,Math.max(1,Math.min(limit,100)),0);
+    }
+    public synchronized List<Job> upcomingJobsPage(int days,int page) {
+        return upcomingJobsRange(days,PAGE_SIZE,Math.max(0,page)*PAGE_SIZE);
+    }
+    private List<Job> upcomingJobsRange(int days,int limit,int offset) {
         if(days<1||days>365)throw new IllegalArgumentException("Неверный период");
         List<Job> result=new ArrayList<>();
         String sql=JOB_SELECT+
                 "WHERE j.due_date>? AND j.due_date<=? " +
                 "AND j.status NOT IN ('Выдан','Архив') " +
-                "ORDER BY j.due_date ASC,j.id ASC LIMIT ?";
+                "ORDER BY j.due_date ASC,j.id ASC LIMIT ? OFFSET ?";
         try(Cursor c=getReadableDatabase().rawQuery(sql,new String[]{
                 today(),LocalDate.now().plusDays(days).toString(),
-                ""+Math.max(1,Math.min(limit,100))})) {
+                ""+limit,""+offset})) {
             while(c.moveToNext())result.add(readJob(c));
         }
         return result;
