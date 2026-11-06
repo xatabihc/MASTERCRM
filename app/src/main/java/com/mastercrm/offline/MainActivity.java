@@ -412,8 +412,8 @@ public final class MainActivity extends Activity {
             if(matches.size()==100)results.addView(label(
                     "Показаны первые 100. Уточните поиск для остальных.",12,false,sub));
         };
-        f.addView(button("Найти",true,load));
         d.show();load.run();
+        q.setOnEditorActionListener((v,actionId,event)->{load.run();return true;});
     }
 
     private void jobEditor(CrmStore.Job existing,long preferredClientId) {
