@@ -51,7 +51,7 @@ import java.util.Locale;
 
 /** No Internet, accounts, permissions or third-party tracking. Android 8+. */
 public final class MainActivity extends Activity {
-    private static final int EXPORT_JSON = 21, IMPORT_JSON = 22, EXPORT_PDF = 23, PHOTO_BEFORE = 24, PHOTO_AFTER = 25, EXPORT_SECURE = 26, IMPORT_SECURE = 27;
+    private static final int EXPORT_JSON = 21, IMPORT_JSON = 22, EXPORT_PDF = 23, PHOTO_BEFORE = 24, PHOTO_AFTER = 25, EXPORT_SECURE = 26, IMPORT_SECURE = 27, EXPORT_STREAM = 28, IMPORT_STREAM = 29;
     private static final String[] TABS = {"Обзор","Заказы","Клиенты","Финансы","Ещё"};
     private CrmStore store;
     private int tab = 0, page = 0;
@@ -372,9 +372,26 @@ public final class MainActivity extends Activity {
             dark=!dark;getPreferences(MODE_PRIVATE).edit().putBoolean("dark",dark).apply();render();
         }));
         LinearLayout backup=card(body);heading(backup,"Резервные копии");
-        backup.addView(label("Рекомендуется защищённая копия .mcrm с паролем: шифрование AES-256-GCM. Пароль не сохраняется и не восстанавливается.",13,false,sub));
+        backup.addView(label("Рекомендуется потоковая защищённая копия .mcrm5: сохраняет фото отдельно, не загружает всю базу в память. Пароль не сохраняется.",13,false,sub));
         space(backup,12);
-        backup.addView(button("Создать защищённую копию",true,()->{
+        backup.addView(button("Создать потоковую копию .mcrm5",true,()->{
+            Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("application/octet-stream");
+            i.putExtra(Intent.EXTRA_TITLE,"mastercrm-"+CrmStore.today()+StreamBackupCrypto.EXTENSION);
+            startActivityForResult(i,EXPORT_STREAM);
+        }));
+        space(backup,8);
+        backup.addView(button("Восстановить потоковую копию .mcrm5",false,()->{
+            Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("*/*");
+            startActivityForResult(i,IMPORT_STREAM);
+        }));
+        space(backup,16);
+        backup.addView(label("Старый формат .mcrm: также зашифрован, но для больших архивов использует больше памяти. Совместимость сохранена.",12,false,sub));
+        space(backup,10);
+        backup.addView(button("Создать старую копию .mcrm",false,()->{
             Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);
             i.addCategory(Intent.CATEGORY_OPENABLE);
             i.setType("application/octet-stream");
@@ -382,7 +399,7 @@ public final class MainActivity extends Activity {
             startActivityForResult(i,EXPORT_SECURE);
         }));
         space(backup,8);
-        backup.addView(button("Восстановить защищённую копию",false,()->{
+        backup.addView(button("Восстановить старую копию .mcrm",false,()->{
             Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
             i.addCategory(Intent.CATEGORY_OPENABLE);
             i.setType("*/*");
@@ -773,13 +790,21 @@ public final class MainActivity extends Activity {
                 Toast.makeText(this,"Фото сохранено",Toast.LENGTH_SHORT).show();
                 render();jobDetails(id);
             });
+        } else if(requestCode==EXPORT_STREAM) {
+            encryptedBackupPrompt(uri,true,true);
+        } else if(requestCode==IMPORT_STREAM) {
+            alertBuilder().setTitle("Восстановить потоковую копию?")
+                .setMessage("Все данные Preview будут заменены. При неправильном пароле или ошибке архива изменения будут отменены. Сначала сохраните копию текущих данных.")
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Продолжить",(d,w)->encryptedBackupPrompt(uri,false,true))
+                .show();
         } else if(requestCode==EXPORT_SECURE) {
-            encryptedBackupPrompt(uri,true);
+            encryptedBackupPrompt(uri,true,false);
         } else if(requestCode==IMPORT_SECURE) {
             alertBuilder().setTitle("Заменить данные из защищённой копии?")
                 .setMessage("Текущие клиенты, заказы, оплаты, расходы и фотографии будут заменены после расшифровки. Сначала сохраните резервную копию текущих данных.")
                 .setNegativeButton("Отмена",null)
-                .setPositiveButton("Продолжить",(dialog,which)->encryptedBackupPrompt(uri,false))
+                .setPositiveButton("Продолжить",(dialog,which)->encryptedBackupPrompt(uri,false,false))
                 .show();
         } else if(requestCode==IMPORT_JSON) {
             alertBuilder().setTitle("Заменить все данные?")
@@ -814,7 +839,7 @@ public final class MainActivity extends Activity {
         } else if(requestCode==EXPORT_PDF) safe(()->writePdf(uri,pdfJobId));
     }
     /** All encryption work runs off the UI thread; password is never persisted. */
-    private void encryptedBackupPrompt(Uri uri,boolean exporting) {
+    private void encryptedBackupPrompt(Uri uri,boolean exporting,boolean streaming) {
         LinearLayout form=form();
         form.addView(label(exporting
             ? "Создайте пароль длиной от 12 символов. Если потеряете его, восстановить копию невозможно."
@@ -846,7 +871,23 @@ public final class MainActivity extends Activity {
                 if(repeatField!=null)repeatField.setText("");
                 new Thread(()->{
                     try {
-                        if(exporting) {
+                        if(streaming) {
+                            if(exporting) {
+                                try(OutputStream raw=getContentResolver().openOutputStream(uri,"w")) {
+                                    if(raw==null)throw new IllegalStateException("Не удалось открыть файл");
+                                    try(OutputStream protectedStream=StreamBackupCrypto.encrypt(raw,workerPassword)) {
+                                        StreamCrmArchive.write(store,protectedStream);
+                                    }
+                                }
+                            } else {
+                                try(InputStream raw=getContentResolver().openInputStream(uri)) {
+                                    if(raw==null)throw new IllegalStateException("Не удалось открыть файл");
+                                    try(InputStream clear=StreamBackupCrypto.decrypt(raw,workerPassword)) {
+                                        StreamCrmArchive.restore(store,clear);
+                                    }
+                                }
+                            }
+                        } else if(exporting) {
                             byte[] data=BackupCrypto.encrypt(store.exportJson(),workerPassword);
                             try(OutputStream out=getContentResolver().openOutputStream(uri,"w")) {
                                 if(out==null)throw new IllegalStateException("Не удалось открыть файл");
