@@ -63,6 +63,7 @@ public final class MainActivity extends Activity {
     private int tab = 0, page = 0;
     private String search = "", filter = "";
     private int dueMode = 0; // 0=all; 1=overdue; 2=next seven days
+    private boolean unpaidOnly=false; // non-archived orders with a positive balance
     private String period = "month";
     private boolean regularOnly=false;
     private boolean dark;
@@ -175,9 +176,9 @@ public final class MainActivity extends Activity {
     private void safe(ThrowingRunnable r) {
         try {r.run();} catch(Exception e) { error(e); }
     }
-    private void navigate(int i) {tab=i;page=0;search="";filter="";dueMode=0;render();}
+    private void navigate(int i) {tab=i;page=0;search="";filter="";dueMode=0;unpaidOnly=false;render();}
     private void showDueOrders(int mode) {
-        tab=1;page=0;search="";filter="";dueMode=mode;render();
+        tab=1;page=0;search="";filter="";dueMode=mode;unpaidOnly=false;render();
     }
     private void render() {
         palette();
@@ -352,8 +353,18 @@ public final class MainActivity extends Activity {
             filter=spin.getSelectedItemPosition()==0?"":CrmStore.STATUS[spin.getSelectedItemPosition()-1];
             page=0;render();
         }));
-        List<CrmStore.Job> list=store.jobs(search,filter,page);
-        if(list.isEmpty()) {empty("Заказы не найдены");return;}
+        space(filters,8);
+        filters.addView(button(unpaidOnly?"✓ С задолженностью · показать все":
+                "Показать заказы с задолженностью",unpaidOnly,()->{
+            unpaidOnly=!unpaidOnly;
+            page=0;render();
+        }));
+        List<CrmStore.Job> list=unpaidOnly?store.unpaidJobs(search,filter,page):
+                store.jobs(search,filter,page);
+        if(list.isEmpty()) {
+            empty(unpaidOnly?"Неоплаченных заказов по фильтрам нет":"Заказы не найдены");
+            return;
+        }
         for(CrmStore.Job j:list) {
             LinearLayout c=card(body);c.addView(jobRow(j));
         }
