@@ -33,8 +33,10 @@ jobs:
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - name: Unit tests and lint
         run: gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
-      - name: Build preview APK
-        run: gradle --no-daemon :app:assembleDebug
+      - name: Build debug APK and validate unsigned release variant
+        run: |
+          gradle --no-daemon :app:assembleDebug :app:assembleRelease
+          test -s app/build/outputs/apk/release/app-release-unsigned.apk
       - name: Verify preview identity, offline permissions and APK signature
         run: |
           APK="app/build/outputs/apk/debug/app-debug.apk"
