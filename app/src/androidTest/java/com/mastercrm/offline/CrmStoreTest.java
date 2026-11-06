@@ -81,6 +81,48 @@ public class CrmStoreTest {
         assertEquals(4,db.jobs("","",0).size());
     }
 
+    @Test public void unpaidListSortsByDebtAndExcludesPaidAndArchived() {
+        long clientId=client("Долги%");
+        long large=job(clientId,90000);
+        db.addPayment(large,20000,"Аванс"); // remaining 70000
+        long medium=job(clientId,40000);
+        db.addPayment(medium,10000,"Аванс"); // remaining 30000
+        long paid=job(clientId,7000);
+        db.addPayment(paid,7000,"Полная оплата");
+        long archived=job(clientId,12000);
+        CrmStore.Job delivered=db.job(archived);
+        delivered.status="Выдан";
+        db.saveJob(delivered);
+        db.addPayment(archived,12000,"Закрыто"); // automatic archive
+        assertEquals("Архив",db.job(archived).status);
+        assertEquals(2,db.unpaidJobs("","",0).size());
+        assertEquals(large,db.unpaidJobs("","",0).get(0).id);
+        assertEquals(medium,db.unpaidJobs("","",0).get(1).id);
+        assertEquals(2,db.unpaidJobs("%","",0).size());
+        assertTrue(db.unpaidJobs("_","",0).isEmpty());
+        assertEquals(2,db.unpaidJobs("","Новый",0).size());
+        assertTrue(db.unpaidJobs("","Архив",0).isEmpty());
+        db.addPayment(medium,30000,"Остаток");
+        assertEquals(1,db.unpaidJobs("","",0).size());
+        db.addPayment(large,-10000,"Возврат");
+        assertEquals(80000,db.unpaidJobs("","",0).get(0).price-
+                db.unpaidJobs("","",0).get(0).paid);
+        assertEquals(4,db.jobs("","",0).size()); // read-only filter
+    }
+
+    @Test public void unpaidListSupportsMoreThanOnePage() {
+        long clientId=client("Страница должников");
+        for(int i=0;i<105;i++)job(clientId,10000+i);
+        assertEquals(100,db.unpaidJobs("","",0).size());
+        assertEquals(5,db.unpaidJobs("","",1).size());
+        assertTrue(db.unpaidJobs("","",2).isEmpty());
+        assertTrue(db.unpaidJobs("несуществующее описание","",0).isEmpty());
+        long first=db.unpaidJobs("","",0).get(0).price;
+        long last=db.unpaidJobs("","",1).get(4).price;
+        assertEquals(10104,first);
+        assertEquals(10000,last);
+    }
+
     @Test public void createsJobsPaysRefundsAndDuplicatesWithoutDoubleCounting() {
         long c=client("Тестовый клиент");
         long id=job(c,30000);
