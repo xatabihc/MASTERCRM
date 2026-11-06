@@ -59,6 +59,15 @@ public final class CrmStore extends SQLiteOpenHelper {
         public long income, expenses;
         public long profit() { return income - expenses; }
     }
+    /** Income/expenses are cash movements, not accrual accounting. */
+    public static class PeriodMetrics {
+        public long income, expense, ordersCreated;
+        public long cashProfit(){return income-expense;}
+    }
+    public static class ClientMetrics {
+        public long jobCount, paid, debt;
+        public boolean regular(){return jobCount>=2;}
+    }
     public static class Summary {
         public long activeJobs, totalClients, dueJobs, totalIncome, totalExpense, totalDebt, todayJobs;
     }
@@ -153,6 +162,38 @@ public final class CrmStore extends SQLiteOpenHelper {
         }
         return list;
     }
+    /** Keeps the existing paginated clients API and adds a repeat-client filter. */
+    public synchronized List<Client> clients(String query,int page,boolean repeatOnly) {
+        if(!repeatOnly)return clients(query,page);
+        List<Client> result=new ArrayList<>();
+        String like="%"+clean(query,100)+"%";
+        String sql="SELECT c.id,c.name,c.phone,c.note,c.created_at FROM clients c " +
+                "WHERE (c.name LIKE ? OR c.phone LIKE ?) " +
+                "AND (SELECT COUNT(*) FROM jobs j WHERE j.client_id=c.id)>=2 " +
+                "ORDER BY c.id DESC LIMIT ? OFFSET ?";
+        try(Cursor c=getReadableDatabase().rawQuery(sql,new String[]{
+                like,like,""+PAGE_SIZE,""+(Math.max(0,page)*PAGE_SIZE)})) {
+            while(c.moveToNext())result.add(readClient(c));
+        }
+        return result;
+    }
+    public synchronized ClientMetrics clientMetrics(long clientId) {
+        if(client(clientId)==null)throw new IllegalArgumentException("Клиент не найден");
+        SQLiteDatabase db=getReadableDatabase();
+        ClientMetrics m=new ClientMetrics();
+        m.jobCount=DatabaseUtils.longForQuery(db,
+                "SELECT COUNT(*) FROM jobs WHERE client_id=?",new String[]{""+clientId});
+        m.paid=DatabaseUtils.longForQuery(db,
+                "SELECT COALESCE(SUM(p.amount),0) FROM payments p " +
+                "JOIN jobs j ON j.id=p.job_id WHERE j.client_id=?",new String[]{""+clientId});
+        m.debt=DatabaseUtils.longForQuery(db,
+                "SELECT COALESCE(SUM(MAX(j.price - " +
+                "COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.job_id=j.id),0),0)),0) " +
+                "FROM jobs j WHERE j.client_id=? AND j.status!='Архив'",
+                new String[]{""+clientId});
+        return m;
+    }
+
     public synchronized Client client(long id) {
         try (Cursor c = getReadableDatabase().rawQuery(
                 "SELECT id,name,phone,note,created_at FROM clients WHERE id=?", new String[]{"" + id})) {
@@ -236,6 +277,20 @@ public final class CrmStore extends SQLiteOpenHelper {
         }
         return list;
     }
+    /** Outstanding receivables sorted by unpaid balance, excluding archived jobs. */
+    public synchronized List<Job> debtors(int limit) {
+        List<Job> result=new ArrayList<>();
+        int capped=Math.max(1,Math.min(limit,100));
+        String balance="(j.price-COALESCE((SELECT SUM(p.amount) FROM payments p " +
+                "WHERE p.job_id=j.id),0))";
+        String sql=JOB_SELECT+"WHERE j.status!='Архив' AND "+balance+">0 " +
+                "ORDER BY "+balance+" DESC, j.id DESC LIMIT ?";
+        try(Cursor c=getReadableDatabase().rawQuery(sql,new String[]{""+capped})) {
+            while(c.moveToNext())result.add(readJob(c));
+        }
+        return result;
+    }
+
     public synchronized Job job(long id) {
         try (Cursor c = getReadableDatabase().rawQuery(
                 JOB_SELECT + "WHERE j.id=?", new String[]{"" + id})) {
@@ -356,6 +411,49 @@ public final class CrmStore extends SQLiteOpenHelper {
                 null);
         return s;
     }
+    /**
+     * Calendar periods in the device time zone.
+     * "day"=today, "week"=Monday-Sunday, "month"=current month,
+     * "all"=every recorded movement. Net payments include refunds.
+     */
+    public synchronized PeriodMetrics periodMetrics(String period) {
+        java.time.LocalDate now=java.time.LocalDate.now();
+        java.time.LocalDate start;
+        java.time.LocalDate end;
+        switch(period) {
+            case "day":
+                start=now;end=now.plusDays(1);break;
+            case "week":
+                start=now.with(java.time.temporal.TemporalAdjusters.previousOrSame(
+                        java.time.DayOfWeek.MONDAY));
+                end=start.plusWeeks(1);break;
+            case "month":
+                start=now.withDayOfMonth(1);end=start.plusMonths(1);break;
+            case "all":
+                start=null;end=null;break;
+            default:throw new IllegalArgumentException("Неизвестный финансовый период");
+        }
+        SQLiteDatabase db=getReadableDatabase();
+        String where=start==null?"":" WHERE created_at>=? AND created_at<?";
+        String[] args;
+        if(start==null)args=null;
+        else {
+            java.time.ZoneId zone=java.time.ZoneId.systemDefault();
+            args=new String[]{
+                ""+start.atStartOfDay(zone).toInstant().toEpochMilli(),
+                ""+end.atStartOfDay(zone).toInstant().toEpochMilli()
+            };
+        }
+        PeriodMetrics m=new PeriodMetrics();
+        m.income=DatabaseUtils.longForQuery(db,
+                "SELECT COALESCE(SUM(amount),0) FROM payments"+where,args);
+        m.expense=DatabaseUtils.longForQuery(db,
+                "SELECT COALESCE(SUM(amount),0) FROM expenses"+where,args);
+        m.ordersCreated=DatabaseUtils.longForQuery(db,
+                "SELECT COUNT(*) FROM jobs"+where,args);
+        return m;
+    }
+
     /** Six real calendar months, local-device time zone. Payments include refunds. */
     public synchronized List<MonthMetrics> monthlyMetrics() {
         List<MonthMetrics> result=new ArrayList<>();
