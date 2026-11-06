@@ -814,6 +814,19 @@ public final class MainActivity extends Activity {
         d.addView(button("Заказ-наряд PDF",false,()->{
             closeJobDialog();exportPdf(j.id);
         }));
+        space(d,8);
+        d.addView(button("Поделиться сводкой заказа",false,()->{
+            // Sharing is always explicit. No personal contacts, notes, or images included.
+            Intent send=new Intent(Intent.ACTION_SEND);
+            send.setType("text/plain");
+            send.putExtra(Intent.EXTRA_SUBJECT,"Заказ "+j.number);
+            send.putExtra(Intent.EXTRA_TEXT,OrderShareText.build(j));
+            try {
+                startActivity(Intent.createChooser(send,"Поделиться заказом"));
+            } catch(ActivityNotFoundException | SecurityException ex) {
+                error(new IllegalStateException("Нет приложения для отправки текста",ex));
+            }
+        }));
         space(d,14);
         d.addView(label("Фотографии заказа",17,true,text));
         space(d,7);
