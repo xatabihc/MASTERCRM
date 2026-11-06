@@ -12,14 +12,40 @@ android {
         applicationId 'com.mastercrm.offline.preview'
         minSdk 26
         targetSdk 35
-        versionCode 3
-        versionName '0.3.0-preview'
+        versionCode 4
+        versionName '0.4.0-preview'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+
+    // Stable release signing is deliberately opt-in: secrets are injected by
+    // the local environment/GitHub encrypted Actions secrets, never committed.
+    def signingPath = System.getenv('MASTERCRM_RELEASE_KEYSTORE')
+    def signingStorePassword = System.getenv('MASTERCRM_RELEASE_STORE_PASSWORD')
+    def signingAlias = System.getenv('MASTERCRM_RELEASE_KEY_ALIAS')
+    def signingKeyPassword = System.getenv('MASTERCRM_RELEASE_KEY_PASSWORD')
+    def hasReleaseSigning = [signingPath, signingStorePassword, signingAlias, signingKeyPassword]
+            .every { it != null && !it.isEmpty() }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            mastercrmRelease {
+                storeFile file(signingPath)
+                storePassword signingStorePassword
+                keyAlias signingAlias
+                keyPassword signingKeyPassword
+                enableV1Signing true
+                enableV2Signing true
+                enableV3Signing true
+            }
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.mastercrmRelease
+            }
         }
     }
 
