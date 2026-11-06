@@ -14,6 +14,8 @@ import android.graphics.pdf.PdfDocument;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Build;
+import android.view.WindowInsets;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.view.Gravity;
@@ -63,6 +65,9 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         store = new CrmStore(this);
+        // Android 15 enforces edge-to-edge. Handle all system bar insets in our
+        // root view so the bottom tabs cannot overlap the OS Home/taskbar area.
+        if (Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
         if(state!=null)photoJobId=state.getLong("photoJobId",0);
         dark = getPreferences(MODE_PRIVATE).getBoolean("dark", false);
         palette();
@@ -150,7 +155,17 @@ public final class MainActivity extends Activity {
     private void navigate(int i) {tab=i;page=0;search="";filter="";render();}
     private void render() {
         palette();
-        LinearLayout base=column();base.setBackgroundColor(bg);setContentView(base);
+        LinearLayout base=column();
+        base.setBackgroundColor(bg);
+        if (Build.VERSION.SDK_INT >= 30) {
+            base.setOnApplyWindowInsetsListener((view, insets) -> {
+                android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
+                view.setPadding(bars.left,bars.top,bars.right,bars.bottom);
+                return insets;
+            });
+        }
+        setContentView(base);
+        if (Build.VERSION.SDK_INT >= 30) base.requestApplyInsets();
         LinearLayout top=column();top.setPadding(dp(18),dp(17),dp(18),dp(13));
         top.addView(label("MASTERCRM  ·  OFFLINE",12,true,accent));
         LinearLayout title=row();
