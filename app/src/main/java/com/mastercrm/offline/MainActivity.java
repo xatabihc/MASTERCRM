@@ -51,7 +51,7 @@ import java.util.Locale;
 
 /** No Internet, accounts, permissions or third-party tracking. Android 8+. */
 public final class MainActivity extends Activity {
-    private static final int EXPORT_JSON = 21, IMPORT_JSON = 22, EXPORT_PDF = 23, PHOTO_BEFORE = 24, PHOTO_AFTER = 25, EXPORT_SECURE = 26, IMPORT_SECURE = 27, EXPORT_STREAM = 28, IMPORT_STREAM = 29;
+    private static final int EXPORT_JSON = 21, IMPORT_JSON = 22, EXPORT_PDF = 23, PHOTO_BEFORE = 24, PHOTO_AFTER = 25, EXPORT_SECURE = 26, IMPORT_SECURE = 27, EXPORT_STREAM = 28, IMPORT_STREAM = 29, VERIFY_STREAM = 30;
     private static final String[] TABS = {"Обзор","Заказы","Клиенты","Финансы","Ещё"};
     private CrmStore store;
     private int tab = 0, page = 0;
@@ -492,6 +492,15 @@ public final class MainActivity extends Activity {
             i.setType("*/*");
             startActivityForResult(i,IMPORT_STREAM);
         }));
+        space(backup,8);
+        backup.addView(button("Проверить копию .mcrm5 без восстановления",false,()->{
+            Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("*/*");
+            startActivityForResult(i,VERIFY_STREAM);
+        }));
+        space(backup,8);
+        backup.addView(label("Проверка расшифрует архив и проверит все записи, суммы и фото, но оставит текущую базу без изменений.",12,false,sub));
         space(backup,16);
         backup.addView(label("Старый формат .mcrm: также зашифрован, но для больших архивов использует больше памяти. Совместимость сохранена.",12,false,sub));
         space(backup,10);
@@ -916,6 +925,8 @@ public final class MainActivity extends Activity {
             });
         } else if(requestCode==EXPORT_STREAM) {
             encryptedBackupPrompt(uri,true,true);
+        } else if(requestCode==VERIFY_STREAM) {
+            encryptedBackupPrompt(uri,false,true,true);
         } else if(requestCode==IMPORT_STREAM) {
             alertBuilder().setTitle("Восстановить потоковую копию?")
                 .setMessage("Все данные Preview будут заменены. При неправильном пароле или ошибке архива изменения будут отменены. Сначала сохраните копию текущих данных.")
@@ -964,6 +975,10 @@ public final class MainActivity extends Activity {
     }
     /** All encryption work runs off the UI thread; password is never persisted. */
     private void encryptedBackupPrompt(Uri uri,boolean exporting,boolean streaming) {
+        encryptedBackupPrompt(uri,exporting,streaming,false);
+    }
+    private void encryptedBackupPrompt(Uri uri,boolean exporting,boolean streaming,
+                                       boolean verifyOnly) {
         LinearLayout form=form();
         form.addView(label(exporting
             ? "Создайте пароль длиной от 12 символов. Если потеряете его, восстановить копию невозможно."
@@ -979,8 +994,9 @@ public final class MainActivity extends Activity {
             repeat.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
         }
         final EditText repeatField=repeat;
-        dialog(exporting?"Защитить резервную копию":"Расшифровать копию",form,
-                exporting?"Сохранить":"Восстановить",()->{
+        dialog(verifyOnly?"Проверка защищённой копии":
+                (exporting?"Защитить резервную копию":"Расшифровать копию"),form,
+                verifyOnly?"Проверить":(exporting?"Сохранить":"Восстановить"),()->{
             char[] pass=pwd.getText().toString().toCharArray();
             char[] verify=repeatField==null?null:repeatField.getText().toString().toCharArray();
             try {
@@ -995,6 +1011,7 @@ public final class MainActivity extends Activity {
                 if(repeatField!=null)repeatField.setText("");
                 new Thread(()->{
                     try {
+                        String verificationReport=null;
                         if(streaming) {
                             if(exporting) {
                                 try(OutputStream raw=getContentResolver().openOutputStream(uri,"w")) {
@@ -1007,7 +1024,19 @@ public final class MainActivity extends Activity {
                                 try(InputStream raw=getContentResolver().openInputStream(uri)) {
                                     if(raw==null)throw new IllegalStateException("Не удалось открыть файл");
                                     try(InputStream clear=StreamBackupCrypto.decrypt(raw,workerPassword)) {
-                                        StreamCrmArchive.restore(store,clear);
+                                        if(verifyOnly) {
+                                            StreamCrmArchive.VerificationResult result=
+                                                    StreamCrmArchive.verify(store,clear);
+                                            verificationReport="Архив корректен.\n"+
+                                                    "Клиенты: "+result.clients+"\n"+
+                                                    "Заказы: "+result.jobs+"\n"+
+                                                    "Оплаты: "+result.payments+"\n"+
+                                                    "Расходы: "+result.expenses+"\n"+
+                                                    "Фотографии: "+result.photos+"\n\n"+
+                                                    "Данные текущего приложения не изменены.";
+                                        } else {
+                                            StreamCrmArchive.restore(store,clear);
+                                        }
                                     }
                                 }
                             }
@@ -1024,10 +1053,17 @@ public final class MainActivity extends Activity {
                                 store.restoreJson(json);
                             } finally {Arrays.fill(data,(byte)0);}
                         }
+                        final String report=verificationReport;
                         runOnUiThread(()->{
-                            Toast.makeText(this,exporting?"Защищённая копия сохранена":
-                                    "Копия успешно восстановлена",Toast.LENGTH_LONG).show();
-                            if(!exporting)render();
+                            if(verifyOnly) {
+                                alertBuilder().setTitle("Результат проверки копии")
+                                        .setMessage(report)
+                                        .setPositiveButton("Закрыть",null).show();
+                            } else {
+                                Toast.makeText(this,exporting?"Защищённая копия сохранена":
+                                        "Копия успешно восстановлена",Toast.LENGTH_LONG).show();
+                                if(!exporting)render();
+                            }
                         });
                     } catch(Exception ex) {
                         runOnUiThread(()->error(ex));

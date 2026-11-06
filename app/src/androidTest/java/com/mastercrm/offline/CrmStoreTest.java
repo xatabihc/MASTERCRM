@@ -153,6 +153,59 @@ public class CrmStoreTest {
         return output.toByteArray();
     }
 
+    @Test public void verifiesValidProtectedBackupWithoutReplacingCurrentDatabase()throws Exception {
+        long backedUpJob=job(client("Внутри копии"),27000);
+        db.addPayment(backedUpJob,12000,"Аванс");
+        byte[] photo={(byte)0xff,(byte)0xd8,12,13,(byte)0xff,(byte)0xd9};
+        db.addPhoto(backedUpJob,"before",photo);
+        char[] pass="Проверочный пароль резервной копии".toCharArray();
+        byte[] encrypted=streamedBackup(pass);
+
+        // These records exist only in the current database, not the archive.
+        long currentJob=job(client("Новая запись после копии"),45000);
+        db.addPayment(currentJob,10000,"Новый платёж");
+        long currentIncome=db.summary().totalIncome;
+        long currentDebt=db.summary().totalDebt;
+
+        StreamCrmArchive.VerificationResult verified;
+        try(java.io.InputStream input=StreamBackupCrypto.decrypt(
+                new java.io.ByteArrayInputStream(encrypted),pass)) {
+            verified=StreamCrmArchive.verify(db,input);
+        }
+        assertEquals(1,verified.clients);
+        assertEquals(1,verified.jobs);
+        assertEquals(1,verified.payments);
+        assertEquals(0,verified.expenses);
+        assertEquals(1,verified.photos);
+
+        // A successful trial import must be rolled back, including photos and money.
+        assertNotNull(db.job(currentJob));
+        assertEquals(10000,db.job(currentJob).paid);
+        assertEquals(2,db.summary().totalClients);
+        assertEquals(currentIncome,db.summary().totalIncome);
+        assertEquals(currentDebt,db.summary().totalDebt);
+        assertEquals(1,db.photos(backedUpJob).size());
+        java.util.Arrays.fill(pass,'\0');
+    }
+
+    @Test public void invalidBackupVerificationRollsBackAndPreservesDatabase()throws Exception {
+        long jobId=job(client("Не потерять при проверке"),12000);
+        db.addPayment(jobId,2500,"");
+        char[] pass="Пароль проверки повреждённой копии".toCharArray();
+        byte[] encrypted=streamedBackup(pass);
+        // Removes the authenticated end record, detected only after reading ZIP.
+        byte[] truncated=java.util.Arrays.copyOf(encrypted,encrypted.length-1);
+        try(java.io.InputStream input=StreamBackupCrypto.decrypt(
+                new java.io.ByteArrayInputStream(truncated),pass)) {
+            StreamCrmArchive.verify(db,input);
+            fail("Truncated backup should fail verification");
+        }catch(java.io.IOException expected){}
+        assertEquals(1,db.summary().totalClients);
+        assertEquals(2500,db.job(jobId).paid);
+        assertEquals(9500,db.summary().totalDebt);
+        java.util.Arrays.fill(pass,'\0');
+    }
+
     @Test public void streamedZipRoundTripRestoresClientsJobsPaymentsAndPhotos()throws Exception {
         long client=client("Потоковая копия 500");
         long id=job(client,99000);
