@@ -65,10 +65,37 @@ public class CrmStoreTest {
         assertEquals(0,db.job(duplicate).paid);
         assertEquals(30000,db.job(duplicate).price);
         assertEquals("Новый",db.job(duplicate).status);
-        assertEquals(50000,db.summary().totalDebt);
+        assertEquals(40000,db.summary().totalDebt);
         assertEquals(2,db.jobs("Ремонт","",0).size());
         assertEquals(2,db.jobsForClient(c).size());
     }
+    @Test public void archivesPaidDeliveredJobAndReopensAfterRefund() {
+        long id=job(client("Архив"),9000);
+        CrmStore.Job delivered=db.job(id);
+        delivered.status="Выдан";
+        db.saveJob(delivered);
+        assertEquals("Выдан",db.job(id).status);
+        db.addPayment(id,9000,"Оплачено");
+        assertEquals("Архив",db.job(id).status);
+        assertEquals(0,db.summary().totalDebt);
+        db.addPayment(id,-1500,"Частичный возврат");
+        assertEquals("Выдан",db.job(id).status);
+        assertEquals(1500,db.summary().totalDebt);
+        db.addPayment(id,1500,"Повторная оплата");
+        assertEquals("Архив",db.job(id).status);
+    }
+    @Test public void financialChartContainsActualCurrentMonthData() {
+        long id=job(client("Статистика"),12000);
+        db.addPayment(id,8000,"В кассу");
+        db.addExpense(id,2700,"Материалы","");
+        List<CrmStore.MonthMetrics> metrics=db.monthlyMetrics();
+        assertEquals(6,metrics.size());
+        CrmStore.MonthMetrics current=metrics.get(5);
+        assertEquals(8000,current.income);
+        assertEquals(2700,current.expenses);
+        assertEquals(5300,current.profit());
+    }
+
     @Test public void refusesOverpaymentAndOverrefund() {
         long id=job(client("Контроль"),10000);
         try {db.addPayment(id,10001,"");fail("overpay");}
