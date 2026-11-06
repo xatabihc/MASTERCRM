@@ -46,6 +46,41 @@ public class CrmStoreTest {
         return db.saveJob(j);
     }
 
+    @Test public void clientAndOrderSearchTreatsWildcardsAsLiteralAndFindsDescriptions() {
+        long percent=client("Клиент 5%");
+        long underscore=client("Клиент_A");
+        long exclamation=client("Клиент!A");
+        long ordinary=client("КлиентXA");
+
+        CrmStore.Job special=new CrmStore.Job();
+        special.clientId=percent;
+        special.title="Диагностика";
+        special.description="Особый дефект QZ981";
+        special.price=55000;
+        long specialId=db.saveJob(special);
+        job(underscore,10000);
+        job(exclamation,10000);
+        job(ordinary,10000);
+
+        assertEquals(1,db.clients("%",0).size());
+        assertEquals(percent,db.clients("%",0).get(0).id);
+        assertEquals(1,db.clients("_",0).size());
+        assertEquals(underscore,db.clients("_",0).get(0).id);
+        assertEquals(1,db.clients("!",0).size());
+        assertEquals(exclamation,db.clients("!",0).get(0).id);
+        assertEquals(1,db.clientOverviews("%",0,false).size());
+        assertEquals(1,db.clientOverviews("_",0,false).size());
+
+        assertEquals(specialId,db.jobs("%","",0).get(0).id);
+        assertEquals(1,db.jobs("%","",0).size());
+        assertEquals(1,db.jobs("_","",0).size());
+        assertEquals(1,db.jobs("!","",0).size());
+        assertEquals(specialId,db.jobs("QZ981","",0).get(0).id);
+        assertEquals(1,db.jobs("QZ981","",0).size());
+        assertTrue(db.jobs("%' OR 1=1 --","",0).isEmpty());
+        assertEquals(4,db.jobs("","",0).size());
+    }
+
     @Test public void createsJobsPaysRefundsAndDuplicatesWithoutDoubleCounting() {
         long c=client("Тестовый клиент");
         long id=job(c,30000);

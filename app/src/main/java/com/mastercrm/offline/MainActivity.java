@@ -343,7 +343,7 @@ public final class MainActivity extends Activity {
             }
             return;
         }
-        searchBar(body,"Номер, заказ, клиент или телефон");
+        searchBar(body,"Номер, услуга, описание, клиент или телефон");
         LinearLayout filters=card(body);
         Spinner spin=spinner(new String[]{"Все",CrmStore.STATUS[0],CrmStore.STATUS[1],CrmStore.STATUS[2],CrmStore.STATUS[3],CrmStore.STATUS[4]});
         if(!filter.isEmpty())spin.setSelection(Arrays.asList(CrmStore.STATUS).indexOf(filter)+1);
