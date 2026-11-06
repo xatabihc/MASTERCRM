@@ -336,17 +336,16 @@ public final class MainActivity extends Activity {
             render();
         }));
         space(body,12);
-        List<CrmStore.Client> list=store.clients(search,page,regularOnly);
+        List<CrmStore.ClientOverview> list=store.clientOverviews(search,page,regularOnly);
         if(list.isEmpty()) {empty(regularOnly?"Постоянные клиенты не найдены":"Клиенты не найдены");return;}
-        for(CrmStore.Client c:list) {
-            CrmStore.ClientMetrics m=store.clientMetrics(c.id);
+        for(CrmStore.ClientOverview c:list) {
             LinearLayout card=card(body);
-            card.addView(label(c.name+(m.regular()?" · ★":""),18,true,text));
+            card.addView(label(c.name+(c.regular()?" · ★":""),18,true,text));
             space(card,6);card.addView(label(c.phone.isEmpty()?"Без телефона":c.phone,14,false,sub));
             space(card,6);
-            line(card,"Заказов",""+m.jobCount);
-            line(card,"Получено",Money.format(m.paid));
-            if(m.debt>0)line(card,"К оплате",Money.format(m.debt));
+            line(card,"Заказов",""+c.jobCount);
+            line(card,"Получено",Money.format(c.paid));
+            if(c.debt>0)line(card,"К оплате",Money.format(c.debt));
             card.setOnClickListener(v->clientDetails(c.id));
         }
         if(page>0)body.addView(button("← Предыдущая страница",false,()->{page--;render();}));
