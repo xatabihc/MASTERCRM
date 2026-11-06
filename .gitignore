@@ -1,0 +1,55 @@
+# Android / Gradle
+.gradle/
+**/build/
+local.properties
+.cxx/
+.externalNativeBuild/
+.idea/
+*.iml
+*.hprof
+
+# Compiled distributions
+*.apk
+*.aab
+*.apks
+
+# Credentials and signing material
+.env
+.env.*
+!.env.example
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.pem
+*.key
+google-services.json
+secrets.properties
+credentials.properties
+keystore.properties
+service-account*.json
+
+# Real user data and backups
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+*.bak
+*.backup
+*backup*.zip
+*backup*.json
+customer-photos/
+user-data/
+data-export/
+*.log
+
+# Python, if legacy notes/scripts are added
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
