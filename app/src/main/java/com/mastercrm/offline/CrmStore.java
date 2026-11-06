@@ -72,6 +72,11 @@ public final class CrmStore extends SQLiteOpenHelper {
         public long jobCount, paid, debt;
         public boolean regular(){return jobCount>=2;}
     }
+    /** A reusable suggestion based on the newest saved job for this exact service title. */
+    public static class ServiceSuggestion {
+        public String title = "", description = "";
+        public long price, uses, lastJobId;
+    }
     public static class Summary {
         public long activeJobs, totalClients, dueJobs, totalIncome, totalExpense, totalDebt, todayJobs;
     }
@@ -316,6 +321,38 @@ public final class CrmStore extends SQLiteOpenHelper {
         }
         return list;
     }
+    /**
+     * Read-only service history. Uses the newest job's price and description,
+     * not an average price that could mislead the user. A literal search term
+     * is escaped so percent/underscore are not interpreted as SQL wildcards.
+     * No schema changes or separate service catalog to keep in sync/back up.
+     */
+    public synchronized List<ServiceSuggestion> serviceSuggestions(String query,int limit) {
+        int bounded=Math.max(1,Math.min(50,limit));
+        String raw=clean(query,100);
+        String escaped=raw.replace("!","!!").replace("%","!%").replace("_","!_");
+        String sql="SELECT j.title,j.description,j.price,j.id AS last_id,t.uses " +
+                "FROM jobs j JOIN (" +
+                "SELECT title,MAX(id) AS last_id,COUNT(*) AS uses FROM jobs " +
+                "WHERE title LIKE ? ESCAPE '!' GROUP BY title " +
+                "ORDER BY last_id DESC LIMIT ?) t ON j.id=t.last_id " +
+                "ORDER BY t.last_id DESC";
+        List<ServiceSuggestion> result=new ArrayList<>();
+        try(Cursor c=getReadableDatabase().rawQuery(sql,
+                new String[]{"%"+escaped+"%",""+bounded})) {
+            while(c.moveToNext()){
+                ServiceSuggestion entry=new ServiceSuggestion();
+                entry.title=col(c,"title");
+                entry.description=col(c,"description");
+                entry.price=num(c,"price");
+                entry.lastJobId=num(c,"last_id");
+                entry.uses=num(c,"uses");
+                result.add(entry);
+            }
+        }
+        return result;
+    }
+
     /**
      * Open orders with a due date today or in the past, oldest deadlines first.
      * Delivered and archived orders are excluded. Pagination prevents

@@ -73,6 +73,47 @@ public class MainActivityUiTest {
         }
     }
 
+    @Test public void reusesHistoricalServiceOnlyAfterExplicitSelection() {
+        final String uniqueTitle="Услуга из истории UI 1.1";
+        rule.getScenario().onActivity(activity->{
+            CrmStore db=new CrmStore(activity);
+            try {
+                CrmStore.Client client=new CrmStore.Client();
+                client.name="Клиент UI выбор услуги";
+                long id=db.saveClient(client);
+                CrmStore.Job old=new CrmStore.Job();
+                old.clientId=id;
+                old.title=uniqueTitle;
+                old.description="Проверка шаблона из прошлого заказа";
+                old.price=215000;
+                db.saveJob(old);
+            } finally {db.close();}
+        });
+        dismissLauncherAnr();
+        withLauncherRecovery(()->onView(withContentDescription("Раздел: Заказы")).perform(click()));
+        withLauncherRecovery(()->onView(withContentDescription("Создать запись")).perform(click()));
+        withLauncherRecovery(()->onView(withText("Подставить услугу из прошлых заказов"))
+                .perform(scrollTo(),click()));
+        withLauncherRecovery(()->onView(withContentDescription("Найти услугу"))
+                .perform(replaceText(uniqueTitle),closeSoftKeyboard()));
+        withLauncherRecovery(()->onView(withText(uniqueTitle+" · "+Money.format(215000)+" · заказов: 1"))
+                .perform(scrollTo(),click()));
+        withLauncherRecovery(()->onView(withContentDescription("Работа / услуга"))
+                .check(matches(withText(uniqueTitle))));
+        withLauncherRecovery(()->onView(withContentDescription("Описание, материалы и заметки"))
+                .check(matches(withText("Проверка шаблона из прошлого заказа"))));
+        withLauncherRecovery(()->onView(withContentDescription("Стоимость, ₽"))
+                .check(matches(withText("2150.00"))));
+        withLauncherRecovery(()->onView(withText("Отмена")).perform(click()));
+        rule.getScenario().onActivity(activity->{
+            CrmStore db=new CrmStore(activity);
+            try {
+                // Choosing a suggestion may prefill a form, but must not save it.
+                assertEquals(1,db.serviceSuggestions(uniqueTitle,50).get(0).uses);
+            } finally {db.close();}
+        });
+    }
+
     @Test public void financialPeriodTabsPersistAcrossScreens() {
         dismissLauncherAnr();
         withLauncherRecovery(()->onView(withContentDescription("Финансовый период: Неделя"))
