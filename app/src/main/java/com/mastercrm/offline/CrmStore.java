@@ -145,6 +145,12 @@ public final class CrmStore extends SQLiteOpenHelper {
     }
     public static String today() { return LocalDate.now().toString(); }
 
+    /** Literal substring search: %, _ and ! never become SQL wildcards. */
+    private static String literalContains(String query) {
+        String raw=clean(query,100);
+        return "%"+raw.replace("!","!!").replace("%","!%").replace("_","!_")+"%";
+    }
+
     public synchronized long saveClient(Client client) {
         if (clean(client.name, 120).isEmpty()) throw new IllegalArgumentException("Укажите имя клиента");
         ContentValues v = new ContentValues();
@@ -162,9 +168,9 @@ public final class CrmStore extends SQLiteOpenHelper {
     }
     public synchronized List<Client> clients(String query, int page) {
         List<Client> list = new ArrayList<>();
-        String like = "%" + clean(query, 100) + "%";
+        String like = literalContains(query);
         try (Cursor c = getReadableDatabase().rawQuery(
-                "SELECT id,name,phone,note,created_at FROM clients WHERE name LIKE ? OR phone LIKE ? " +
+                "SELECT id,name,phone,note,created_at FROM clients WHERE name LIKE ? ESCAPE '!' OR phone LIKE ? ESCAPE '!' " +
                 "ORDER BY id DESC LIMIT ? OFFSET ?",
                 new String[]{like, like, "" + PAGE_SIZE, "" + (Math.max(page, 0) * PAGE_SIZE)})) {
             while (c.moveToNext()) list.add(readClient(c));
@@ -175,9 +181,9 @@ public final class CrmStore extends SQLiteOpenHelper {
     public synchronized List<Client> clients(String query,int page,boolean repeatOnly) {
         if(!repeatOnly)return clients(query,page);
         List<Client> result=new ArrayList<>();
-        String like="%"+clean(query,100)+"%";
+        String like=literalContains(query);
         String sql="SELECT c.id,c.name,c.phone,c.note,c.created_at FROM clients c " +
-                "WHERE (c.name LIKE ? OR c.phone LIKE ?) " +
+                "WHERE (c.name LIKE ? ESCAPE '!' OR c.phone LIKE ? ESCAPE '!') " +
                 "AND (SELECT COUNT(*) FROM jobs j WHERE j.client_id=c.id)>=2 " +
                 "ORDER BY c.id DESC LIMIT ? OFFSET ?";
         try(Cursor c=getReadableDatabase().rawQuery(sql,new String[]{
@@ -194,7 +200,7 @@ public final class CrmStore extends SQLiteOpenHelper {
     public synchronized List<ClientOverview> clientOverviews(String query,int page,
                                                                boolean repeatOnly) {
         List<ClientOverview> result=new ArrayList<>();
-        String like="%"+clean(query,100)+"%";
+        String like=literalContains(query);
         String orderCount="(SELECT COUNT(*) FROM jobs j WHERE j.client_id=c.id)";
         String paid="COALESCE((SELECT SUM(p.amount) FROM payments p " +
                 "JOIN jobs j ON j.id=p.job_id WHERE j.client_id=c.id),0)";
@@ -204,7 +210,7 @@ public final class CrmStore extends SQLiteOpenHelper {
         String sql="SELECT c.id,c.name,c.phone,c.note,c.created_at," +
                 orderCount+" AS job_count,"+paid+" AS total_paid," +
                 debt+" AS total_debt FROM clients c " +
-                "WHERE (c.name LIKE ? OR c.phone LIKE ?) " +
+                "WHERE (c.name LIKE ? ESCAPE '!' OR c.phone LIKE ? ESCAPE '!') " +
                 (repeatOnly?"AND "+orderCount+">=2 ":"") +
                 "ORDER BY c.id DESC LIMIT ? OFFSET ?";
         try(Cursor c=getReadableDatabase().rawQuery(sql,new String[]{
@@ -308,12 +314,13 @@ public final class CrmStore extends SQLiteOpenHelper {
             "FROM jobs j JOIN clients c ON c.id=j.client_id ";
     public synchronized List<Job> jobs(String query, String filter, int page) {
         List<Job> list = new ArrayList<>();
-        String like = "%" + clean(query, 100) + "%";
+        String like = literalContains(query);
         boolean statusFilter = filter != null && !filter.isEmpty();
-        String sql = JOB_SELECT + "WHERE (j.number LIKE ? OR j.title LIKE ? OR c.name LIKE ? OR c.phone LIKE ?) " +
+        String sql = JOB_SELECT + "WHERE (j.number LIKE ? ESCAPE '!' OR j.title LIKE ? ESCAPE '!' " +
+                "OR j.description LIKE ? ESCAPE '!' OR c.name LIKE ? ESCAPE '!' OR c.phone LIKE ? ESCAPE '!') " +
                 (statusFilter ? "AND j.status=? " : "") + "ORDER BY j.id DESC LIMIT ? OFFSET ?";
         List<String> args = new ArrayList<>();
-        for (int i = 0; i < 4; i++) args.add(like);
+        for (int i = 0; i < 5; i++) args.add(like);
         if (statusFilter) args.add(filter);
         args.add("" + PAGE_SIZE); args.add("" + (Math.max(page, 0) * PAGE_SIZE));
         try (Cursor c = getReadableDatabase().rawQuery(sql, args.toArray(new String[0]))) {
@@ -329,8 +336,7 @@ public final class CrmStore extends SQLiteOpenHelper {
      */
     public synchronized List<ServiceSuggestion> serviceSuggestions(String query,int limit) {
         int bounded=Math.max(1,Math.min(50,limit));
-        String raw=clean(query,100);
-        String escaped=raw.replace("!","!!").replace("%","!%").replace("_","!_");
+        String like=literalContains(query);
         String sql="SELECT j.title,j.description,j.price,j.id AS last_id,t.uses " +
                 "FROM jobs j JOIN (" +
                 "SELECT title,MAX(id) AS last_id,COUNT(*) AS uses FROM jobs " +
@@ -339,7 +345,7 @@ public final class CrmStore extends SQLiteOpenHelper {
                 "ORDER BY t.last_id DESC";
         List<ServiceSuggestion> result=new ArrayList<>();
         try(Cursor c=getReadableDatabase().rawQuery(sql,
-                new String[]{"%"+escaped+"%",""+bounded})) {
+                new String[]{like,""+bounded})) {
             while(c.moveToNext()){
                 ServiceSuggestion entry=new ServiceSuggestion();
                 entry.title=col(c,"title");
