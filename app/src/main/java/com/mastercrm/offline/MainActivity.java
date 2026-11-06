@@ -233,7 +233,8 @@ public final class MainActivity extends Activity {
         for(CrmStore.Job j:list) {
             LinearLayout c=card(body);c.addView(jobRow(j));
         }
-        if(list.size()==100) {body.addView(button("Показать ещё",false,()->{page++;render();}));}
+        if(page>0)body.addView(button("← Предыдущая страница",false,()->{page--;render();}));
+        if(list.size()==100) {body.addView(button("Следующая страница →",false,()->{page++;render();}));}
     }
     private View jobRow(CrmStore.Job j) {
         LinearLayout x=column();x.setPadding(0,dp(5),0,dp(5));
@@ -269,7 +270,8 @@ public final class MainActivity extends Activity {
             space(card,6);card.addView(label(c.phone.isEmpty()?"Без телефона":c.phone,14,false,sub));
             card.setOnClickListener(v->clientDetails(c.id));
         }
-        if(list.size()==100)body.addView(button("Показать ещё",false,()->{page++;render();}));
+        if(page>0)body.addView(button("← Предыдущая страница",false,()->{page--;render();}));
+        if(list.size()==100)body.addView(button("Следующая страница →",false,()->{page++;render();}));
     }
     private void finance() {
         CrmStore.Summary s=store.summary();
@@ -378,8 +380,16 @@ public final class MainActivity extends Activity {
         d.addView(button("Изменить",false,()->clientEditor(c)));
         space(d,9);
         d.addView(button("+ Заказ для этого клиента",true,()->jobEditor(null,c.id)));
+        space(d,16);
+        d.addView(label("Заказы клиента",17,true,text));space(d,8);
+        List<CrmStore.Job> clientJobs=store.jobsForClient(c.id);
+        if(clientJobs.isEmpty()) d.addView(label("Заказов пока нет",13,false,sub));
+        for(CrmStore.Job j:clientJobs) {
+            d.addView(jobRow(j));space(d,12);
+        }
+        ScrollView scroll=new ScrollView(this);scroll.addView(d);
         alertBuilder().setTitle("Карточка клиента")
-                .setView(d).setPositiveButton("Закрыть",null).show();
+                .setView(scroll).setPositiveButton("Закрыть",null).show();
     }
     private void jobEditor(CrmStore.Job existing,long preferredClientId) {
         CrmStore.Job job=existing==null?new CrmStore.Job():existing;
@@ -432,6 +442,11 @@ public final class MainActivity extends Activity {
         if(!j.dueDate.isEmpty())line(d,"Срок",j.dueDate);
         space(d,8);
         d.addView(button("Редактировать заказ",false,()->jobEditor(j,0)));
+        space(d,8);
+        d.addView(button("Дублировать заказ",false,()->safe(()->{
+            long copy=store.duplicateJob(j.id);
+            render();jobDetails(copy);
+        })));
         space(d,8);
         d.addView(button("+ Оплата",true,()->paymentEditor(j.id,false)));
         space(d,8);
