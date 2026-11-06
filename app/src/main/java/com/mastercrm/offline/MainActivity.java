@@ -14,6 +14,8 @@ import android.graphics.pdf.PdfDocument;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Build;
+import android.view.WindowInsets;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.view.Gravity;
@@ -63,6 +65,9 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         store = new CrmStore(this);
+        // Android 15 enforces edge-to-edge. Handle all system bar insets in our
+        // root view so the bottom tabs cannot overlap the OS Home/taskbar area.
+        if (Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
         if(state!=null)photoJobId=state.getLong("photoJobId",0);
         dark = getPreferences(MODE_PRIVATE).getBoolean("dark", false);
         palette();
@@ -150,7 +155,17 @@ public final class MainActivity extends Activity {
     private void navigate(int i) {tab=i;page=0;search="";filter="";render();}
     private void render() {
         palette();
-        LinearLayout base=column();base.setBackgroundColor(bg);setContentView(base);
+        LinearLayout base=column();
+        base.setBackgroundColor(bg);
+        if (Build.VERSION.SDK_INT >= 30) {
+            base.setOnApplyWindowInsetsListener((view, insets) -> {
+                android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
+                view.setPadding(bars.left,bars.top,bars.right,bars.bottom);
+                return insets;
+            });
+        }
+        setContentView(base);
+        if (Build.VERSION.SDK_INT >= 30) base.requestApplyInsets();
         LinearLayout top=column();top.setPadding(dp(18),dp(17),dp(18),dp(13));
         top.addView(label("MASTERCRM  ·  OFFLINE",12,true,accent));
         LinearLayout title=row();
@@ -162,6 +177,7 @@ public final class MainActivity extends Activity {
             else if(tab==1||tab==0)jobEditor(null,0);
             else navigate(1);
         });
+        add.setContentDescription("Создать запись");
         title.addView(add,new LinearLayout.LayoutParams(dp(56),dp(50)));
         top.addView(title);
         top.addView(label("Данные хранятся только на этом устройстве",12,false,sub));
@@ -186,6 +202,7 @@ public final class MainActivity extends Activity {
             final int at=i;
             TextView n=label(TABS[i],12,i==tab,i==tab?accent:sub);
             n.setGravity(Gravity.CENTER);
+            n.setContentDescription("Раздел: "+TABS[i]);
             n.setMinHeight(dp(52));
             n.setBackground(i==tab?shape(bg,0,11):null);
             n.setOnClickListener(v->navigate(at));
@@ -399,6 +416,7 @@ public final class MainActivity extends Activity {
         holder.addView(label(label,13,true,sub));space(holder,4);
         EditText edit=new EditText(this);
         edit.setText(value==null?"":value);
+        edit.setContentDescription(label);
         edit.setTextColor(text);edit.setHintTextColor(sub);edit.setTextSize(16);
         edit.setInputType(inputType);
         edit.setPadding(dp(12),dp(11),dp(12),dp(11));edit.setBackground(shape(bg,stroke,10));

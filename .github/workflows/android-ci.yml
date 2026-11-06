@@ -73,9 +73,28 @@ jobs:
       - name: Run real SQLite integration tests on fresh Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 34
+          target: google_apis
           arch: x86_64
           profile: pixel_4
-          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
           disable-animations: true
-          script: gradle --no-daemon connectedDebugAndroidTest
+          script: bash tools/run-android-ui-ci.sh
+      - name: Save emulator screenshot for visual review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mastercrm-android-ui-screenshot
+          path: mastercrm-emulator-overview.png
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload Android instrumentation test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mastercrm-android-ui-test-results
+          path: |
+            app/build/outputs/androidTest-results/connected/
+            app/build/reports/androidTests/connected/
+          if-no-files-found: warn
+          retention-days: 14
