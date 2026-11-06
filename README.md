@@ -1,6 +1,6 @@
-# MasterCRM Offline Preview 0.4 (Android)
+# MasterCRM Offline Preview 0.5 (Android)
 
-![Android CI](https://github.com/xatabihc/MASTERCRM/actions/workflows/android-ci.yml/badge.svg?branch=develop%2Fpreview-v0.4-data-integrity)
+![Android CI](https://github.com/xatabihc/MASTERCRM/actions/workflows/android-ci.yml/badge.svg?branch=develop%2Fpreview-v0.5-stream-backups)
 
 **В разработке.** Независимый офлайн Android-проект. Не замена и не обновление ранее установленной MasterCRM 0.9.4.
 
@@ -15,6 +15,7 @@
 - Создание/редактирование клиентов и заказов, история оплат, частичные оплаты, дублирование заказов и история заказов клиента.
 - Фотографии «до/после»: системный выбор изображения, уменьшение JPEG и хранение в приватной SQLite; 10 фото каждого типа на заказ.
 - Защищённый экспорт/импорт копии `.mcrm` **с паролем**, включая фотографии: сжатие GZIP, PBKDF2-HMAC-SHA256 (210 000 итераций), AES-256-GCM. Соль и nonce случайные для каждого экспорта.
+- Новый потоковый экспорт/импорт `.mcrm5`: ZIP с отдельными таблицами и фотографиями, шифрование AES-256-GCM по блокам 64 КиБ, без полной загрузки базы и файлов в оперативную память. [Описание формата](docs/STREAM_BACKUPS.md).
 - Для совместимости остаются отдельные кнопки старого JSON без шифрования. Формат JSON-схемы 2, совместимость с JSON-схемой Preview 1 сохранена (без фотографий).
 - Импорт полностью транзакционный: ошибка сохраняет прежние данные. При импорте также проверяются итоговые оплаты против цены заказа, отрицательные балансы, обязательные имена и допустимые статусы; повреждённые копии отклоняются до завершения транзакции. Перед импортом есть предупреждение о замене.
 - PDF заказ-наряда через Android `PdfDocument` (не фискальный чек).
@@ -28,7 +29,7 @@
 ## Как получить APK через GitHub
 
 1. Откройте [Actions](https://github.com/xatabihc/MASTERCRM/actions/workflows/android-ci.yml).
-2. Выберите **зелёный** успешный workflow на ветке `develop/preview-v0.4-data-integrity` (или `main` после слияния).
+2. Выберите **зелёный** успешный workflow на ветке `develop/preview-v0.5-stream-backups` (или `main` после слияния).
 3. В блоке Artifacts скачайте `mastercrm-offline-preview-debug`.
 4. Распакуйте ZIP, установите `app-debug.apk` на Android (или `adb install -r app-debug.apk`).
 
