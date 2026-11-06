@@ -162,6 +162,7 @@ public final class MainActivity extends Activity {
             else if(tab==1||tab==0)jobEditor(null,0);
             else navigate(1);
         });
+        add.setContentDescription("Создать запись");
         title.addView(add,new LinearLayout.LayoutParams(dp(56),dp(50)));
         top.addView(title);
         top.addView(label("Данные хранятся только на этом устройстве",12,false,sub));
@@ -186,6 +187,7 @@ public final class MainActivity extends Activity {
             final int at=i;
             TextView n=label(TABS[i],12,i==tab,i==tab?accent:sub);
             n.setGravity(Gravity.CENTER);
+            n.setContentDescription("Раздел: "+TABS[i]);
             n.setMinHeight(dp(52));
             n.setBackground(i==tab?shape(bg,0,11):null);
             n.setOnClickListener(v->navigate(at));
@@ -399,6 +401,7 @@ public final class MainActivity extends Activity {
         holder.addView(label(label,13,true,sub));space(holder,4);
         EditText edit=new EditText(this);
         edit.setText(value==null?"":value);
+        edit.setContentDescription(label);
         edit.setTextColor(text);edit.setHintTextColor(sub);edit.setTextSize(16);
         edit.setInputType(inputType);
         edit.setPadding(dp(12),dp(11),dp(12),dp(11));edit.setBackground(shape(bg,stroke,10));
