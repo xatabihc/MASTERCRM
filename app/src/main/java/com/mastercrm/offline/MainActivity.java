@@ -358,6 +358,14 @@ public final class MainActivity extends Activity {
         target.addView(track,new LinearLayout.LayoutParams(-1,dp(8)));
     }
 
+    private String installedVersion() {
+        try {
+            String version=getPackageManager().getPackageInfo(getPackageName(),0).versionName;
+            return version==null?"неизвестная версия":version;
+        } catch(android.content.pm.PackageManager.NameNotFoundException ex) {
+            return "неизвестная версия";
+        }
+    }
     private void settings() {
         LinearLayout c=card(body);heading(c,"Оформление");
         c.addView(button(dark?"Светлая тема":"Тёмная тема",false,()->{
@@ -396,7 +404,7 @@ public final class MainActivity extends Activity {
             startActivityForResult(i,IMPORT_JSON);
         }));
         LinearLayout about=card(body);heading(about,"О приложении");
-        about.addView(label("MasterCRM Offline Preview · 0.3.0",14,true,text));
+        about.addView(label("MasterCRM Offline Preview · "+installedVersion(),14,true,text));
         space(about,8);
         about.addView(label("Работает без сети, серверов и платных сервисов. Отдельный пакет не заменяет установленную MasterCRM 0.9.4.",13,false,sub));
         space(about,6);
