@@ -96,6 +96,77 @@ public class CrmStoreTest {
         assertEquals(5300,current.profit());
     }
 
+    @Test public void suggestionsUseLatestSavedPriceDescriptionAndCount() {
+        long person=client("Повторные работы");
+        CrmStore.Job first=new CrmStore.Job();
+        first.clientId=person;first.title="Установка розетки";first.description="Старое описание";first.price=180000;
+        long firstId=db.saveJob(first);
+        CrmStore.Job other=new CrmStore.Job();
+        other.clientId=person;other.title="Замена смесителя";other.description="Проверить крепления";other.price=330000;
+        long otherId=db.saveJob(other);
+        CrmStore.Job newer=new CrmStore.Job();
+        newer.clientId=person;newer.title="Установка розетки";newer.description="Новый стандарт";newer.price=210000;
+        long lastId=db.saveJob(newer);
+
+        List<CrmStore.ServiceSuggestion> services=db.serviceSuggestions("",50);
+        assertEquals(2,services.size());
+        assertEquals("Установка розетки",services.get(0).title);
+        assertEquals("Новый стандарт",services.get(0).description);
+        assertEquals(210000,services.get(0).price);
+        assertEquals(lastId,services.get(0).lastJobId);
+        assertEquals(2,services.get(0).uses);
+        assertEquals("Замена смесителя",services.get(1).title);
+        assertEquals(otherId,services.get(1).lastJobId);
+        assertEquals(1,services.get(1).uses);
+        assertEquals(1,db.serviceSuggestions("розетки",50).size());
+        assertEquals(1,db.serviceSuggestions("смесителя",50).size());
+        assertEquals(1,db.serviceSuggestions("",1).size());
+        assertEquals(2,db.serviceSuggestions("",1000).size());
+        assertEquals(180000,db.job(firstId).price); // suggestions never mutate older orders
+        assertEquals(3,db.jobs("","",0).size());
+    }
+
+    @Test public void serviceSearchTreatsPercentAndUnderscoreAsLiterals() {
+        long person=client("Литералы поиска");
+        CrmStore.Job percent=new CrmStore.Job();
+        percent.clientId=person;percent.title="Скидка 5%";percent.price=10000;
+        db.saveJob(percent);
+        CrmStore.Job underscore=new CrmStore.Job();
+        underscore.clientId=person;underscore.title="Работа_A";underscore.price=20000;
+        db.saveJob(underscore);
+        CrmStore.Job normal=new CrmStore.Job();
+        normal.clientId=person;normal.title="Обычная работа";normal.price=30000;
+        db.saveJob(normal);
+        assertEquals(1,db.serviceSuggestions("%",50).size());
+        assertEquals("Скидка 5%",db.serviceSuggestions("%",50).get(0).title);
+        assertEquals(1,db.serviceSuggestions("_",50).size());
+        assertEquals("Работа_A",db.serviceSuggestions("_",50).get(0).title);
+        assertTrue(db.serviceSuggestions("%' OR 1=1 --",50).isEmpty());
+    }
+
+    @Test public void serviceHistorySurvivesEncryptedBackupAndRestore() throws Exception {
+        long person=client("Клиент архивной услуги");
+        CrmStore.Job job=new CrmStore.Job();
+        job.clientId=person;job.title="Диагностика ноутбука";job.description="С тестами";job.price=390000;
+        db.saveJob(job);
+        char[] password="Длинный пароль для шаблонов 1.1".toCharArray();
+        byte[] backup=streamedBackup(password);
+        CrmStore.Job temporary=new CrmStore.Job();
+        temporary.clientId=person;temporary.title="Временная работа";temporary.price=110000;
+        db.saveJob(temporary);
+        assertEquals(2,db.serviceSuggestions("",50).size());
+        try(java.io.InputStream input=StreamBackupCrypto.decrypt(
+                new java.io.ByteArrayInputStream(backup),password)) {
+            StreamCrmArchive.restore(db,input);
+        }
+        List<CrmStore.ServiceSuggestion> result=db.serviceSuggestions("",50);
+        assertEquals(1,result.size());
+        assertEquals("Диагностика ноутбука",result.get(0).title);
+        assertEquals(390000,result.get(0).price);
+        assertEquals("С тестами",result.get(0).description);
+        java.util.Arrays.fill(password,'\0');
+    }
+
     @Test public void refusesOverpaymentAndOverrefund() {
         long id=job(client("Контроль"),10000);
         try {db.addPayment(id,10001,"");fail("overpay");}
