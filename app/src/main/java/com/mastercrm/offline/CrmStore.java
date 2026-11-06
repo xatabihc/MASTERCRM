@@ -54,6 +54,11 @@ public final class CrmStore extends SQLiteOpenHelper {
         public String kind = "before";
         public byte[] jpeg;
     }
+    public static class MonthMetrics {
+        public String month;
+        public long income, expenses;
+        public long profit() { return income - expenses; }
+    }
     public static class Summary {
         public long activeJobs, totalClients, dueJobs, totalIncome, totalExpense, totalDebt, todayJobs;
     }
@@ -178,7 +183,16 @@ public final class CrmStore extends SQLiteOpenHelper {
         v.put("client_id", job.clientId);
         v.put("title", clean(job.title, 160));
         v.put("description", clean(job.description, 4000));
-        v.put("status", job.status);
+        String status=job.status;
+        if(job.id>0) {
+            long paid=paidForJob(job.id);
+            if("Архив".equals(status) && paid!=job.price)
+                throw new IllegalArgumentException("Архивировать можно только полностью оплаченный заказ");
+            if("Выдан".equals(status) && paid==job.price) status="Архив";
+        } else if("Архив".equals(status) && job.price!=0) {
+            throw new IllegalArgumentException("Новый неоплаченный заказ нельзя архивировать");
+        }
+        v.put("status", status);
         v.put("price", job.price);
         v.put("due_date", due);
         if (job.id > 0) {
@@ -278,6 +292,15 @@ public final class CrmStore extends SQLiteOpenHelper {
             v.put("job_id", jobId); v.put("amount", amount);
             v.put("note", clean(note, 500)); v.put("created_at", System.currentTimeMillis());
             long id = db.insertOrThrow("payments", null, v);
+            if("Выдан".equals(j.status) && total==j.price) {
+                ContentValues archived=new ContentValues();
+                archived.put("status","Архив");
+                db.update("jobs",archived,"id=?",new String[]{""+jobId});
+            } else if("Архив".equals(j.status) && total<j.price) {
+                ContentValues restored=new ContentValues();
+                restored.put("status","Выдан");
+                db.update("jobs",restored,"id=?",new String[]{""+jobId});
+            }
             db.setTransactionSuccessful(); return id;
         } finally { db.endTransaction(); }
     }
@@ -333,6 +356,28 @@ public final class CrmStore extends SQLiteOpenHelper {
                 null);
         return s;
     }
+    /** Six real calendar months, local-device time zone. Payments include refunds. */
+    public synchronized List<MonthMetrics> monthlyMetrics() {
+        List<MonthMetrics> result=new ArrayList<>();
+        java.time.YearMonth now=java.time.YearMonth.now();
+        java.time.ZoneId zone=java.time.ZoneId.systemDefault();
+        SQLiteDatabase db=getReadableDatabase();
+        for(int i=5;i>=0;i--) {
+            java.time.YearMonth month=now.minusMonths(i);
+            long from=month.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli();
+            long until=month.plusMonths(1).atDay(1).atStartOfDay(zone).toInstant().toEpochMilli();
+            String[] args={""+from,""+until};
+            MonthMetrics m=new MonthMetrics();
+            m.month=month.toString();
+            m.income=DatabaseUtils.longForQuery(db,
+                    "SELECT COALESCE(SUM(amount),0) FROM payments WHERE created_at>=? AND created_at<?",args);
+            m.expenses=DatabaseUtils.longForQuery(db,
+                    "SELECT COALESCE(SUM(amount),0) FROM expenses WHERE created_at>=? AND created_at<?",args);
+            result.add(m);
+        }
+        return result;
+    }
+
     private static void validatePhoto(String kind, byte[] jpeg) {
         if (!("before".equals(kind) || "after".equals(kind)))
             throw new IllegalArgumentException("Неверный тип фотографии");
