@@ -208,6 +208,29 @@ public final class CrmStore extends SQLiteOpenHelper {
             return c.moveToFirst() ? readJob(c) : null;
         }
     }
+    public synchronized List<Job> jobsForClient(long clientId) {
+        List<Job> list = new ArrayList<>();
+        try (Cursor c = getReadableDatabase().rawQuery(
+                JOB_SELECT + "WHERE j.client_id=? ORDER BY j.id DESC LIMIT 1000",
+                new String[]{"" + clientId})) {
+            while(c.moveToNext()) list.add(readJob(c));
+        }
+        return list;
+    }
+    /** Duplicate an order without transferring its payments or expenses. */
+    public synchronized long duplicateJob(long jobId) {
+        Job existing = job(jobId);
+        if (existing == null) throw new IllegalArgumentException("Заказ не найден");
+        Job copy = new Job();
+        copy.clientId = existing.clientId;
+        copy.title = existing.title + " (копия)";
+        copy.description = existing.description;
+        copy.price = existing.price;
+        copy.dueDate = "";
+        copy.status = STATUS[0];
+        return saveJob(copy);
+    }
+
     private static Job readJob(Cursor c) {
         Job j = new Job();
         j.id = num(c,"id"); j.number = col(c,"number"); j.clientId = num(c,"client_id");
