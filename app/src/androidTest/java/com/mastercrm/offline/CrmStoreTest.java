@@ -283,10 +283,94 @@ public class CrmStoreTest {
         }
         assertEquals(1005,db.summary().totalClients);
         assertEquals(100,db.clients("",0).size());
+        assertEquals(100,db.clientOverviews("",0,false).size());
         assertEquals(100,db.clients("",9).size());
         assertEquals(5,db.clients("",10).size());
         assertEquals(1,db.clients("Покупатель 1004",0).size());
         assertEquals(1,db.clients("0001004",0).size());
+    }
+
+    @Test public void repeatClientsAndIndividualBalancesAreCalculated() {
+        long regular=client("Постоянный клиент");
+        long occasional=client("Первый визит");
+        long j1=job(regular,22000);
+        long j2=job(regular,30000);
+        job(occasional,5000);
+        db.addPayment(j1,20000,"Аванс");
+        db.addPayment(j2,30000,"Полная оплата");
+
+        CrmStore.ClientMetrics stats=db.clientMetrics(regular);
+        assertEquals(2,stats.jobCount);
+        assertEquals(50000,stats.paid);
+        assertEquals(2000,stats.debt);
+        assertTrue(stats.regular());
+        assertFalse(db.clientMetrics(occasional).regular());
+
+        java.util.List<CrmStore.Client> repeat=db.clients("",0,true);
+        assertEquals(1,repeat.size());
+        assertEquals(regular,repeat.get(0).id);
+        assertEquals(1,db.clients("Постоянный",0,true).size());
+        assertEquals(0,db.clients("Первый визит",0,true).size());
+        java.util.List<CrmStore.ClientOverview> overview=db.clientOverviews("",0,true);
+        assertEquals(1,overview.size());
+        assertEquals(regular,overview.get(0).id);
+        assertEquals(2,overview.get(0).jobCount);
+        assertEquals(50000,overview.get(0).paid);
+        assertEquals(2000,overview.get(0).debt);
+        assertTrue(overview.get(0).regular());
+    }
+
+    @Test public void overdueReceivablesShowLargestUnpaidOrdersFirst() {
+        long clientId=client("Тест долгов");
+        long small=job(clientId,10000),large=job(clientId,50000);
+        long paid=job(clientId,40000);
+        db.addPayment(small,2000,"");
+        db.addPayment(large,1000,"");
+        db.addPayment(paid,40000,"");
+        java.util.List<CrmStore.Job> owed=db.debtors(10);
+        assertEquals(2,owed.size());
+        assertEquals(large,owed.get(0).id);
+        assertEquals(49000,Money.outstanding(owed.get(0).price,owed.get(0).paid));
+        assertEquals(small,owed.get(1).id);
+        assertEquals(1,db.debtors(1).size());
+    }
+
+    @Test public void dayWeekMonthAndAllCashFlowsReflectRealPaymentsAndRefunds() {
+        long id=job(client("Периоды"),18000);
+        db.addPayment(id,12000,"Получено");
+        db.addPayment(id,-2000,"Возврат");
+        db.addExpense(id,3000,"Материалы","");
+        for(String period:new String[]{"day","week","month","all"}) {
+            CrmStore.PeriodMetrics m=db.periodMetrics(period);
+            assertEquals("income "+period,10000,m.income);
+            assertEquals("expenses "+period,3000,m.expense);
+            assertEquals("profit "+period,7000,m.cashProfit());
+            assertEquals("orders "+period,1,m.ordersCreated);
+        }
+        try {db.periodMetrics("future");fail("unknown period");}
+        catch(IllegalArgumentException expected){}
+    }
+
+    @Test public void olderMovementsExcludedFromCurrentCashPeriod() {
+        long id=job(client("Прошлый месяц"),9000);
+        long payment=db.addPayment(id,4500,"");
+        long expense=db.addExpense(id,1500,"Запчасти","");
+        long old=java.time.LocalDate.now().minusMonths(2)
+                .atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+        android.content.ContentValues time=new android.content.ContentValues();
+        time.put("created_at",old);
+        db.getWritableDatabase().update("payments",time,"id=?",new String[]{""+payment});
+        db.getWritableDatabase().update("expenses",time,"id=?",new String[]{""+expense});
+        db.getWritableDatabase().update("jobs",time,"id=?",new String[]{""+id});
+        CrmStore.PeriodMetrics month=db.periodMetrics("month");
+        assertEquals(0,month.income);
+        assertEquals(0,month.expense);
+        assertEquals(0,month.ordersCreated);
+        CrmStore.PeriodMetrics all=db.periodMetrics("all");
+        assertEquals(4500,all.income);
+        assertEquals(1500,all.expense);
+        assertEquals(1,all.ordersCreated);
+        assertEquals(4500,db.summary().totalIncome);
     }
 
     @Test public void canImportPreviousSchemaOneBackup() throws Exception {

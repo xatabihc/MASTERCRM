@@ -73,6 +73,25 @@ public class MainActivityUiTest {
         }
     }
 
+    @Test public void financialPeriodTabsPersistAcrossScreens() {
+        dismissLauncherAnr();
+        withLauncherRecovery(()->onView(withContentDescription("Финансовый период: Неделя"))
+                .perform(click()));
+        withLauncherRecovery(()->onView(withText("Получено за неделю"))
+                .check(matches(isDisplayed())));
+        withLauncherRecovery(()->onView(withContentDescription("Раздел: Финансы"))
+                .perform(click()));
+        withLauncherRecovery(()->onView(withText("Денежный поток за неделю"))
+                .check(matches(isDisplayed())));
+        withLauncherRecovery(()->onView(withContentDescription("Финансовый период: Всё"))
+                .perform(click()));
+        withLauncherRecovery(()->onView(withText("Денежный поток за всё время"))
+                .check(matches(isDisplayed())));
+        // Restore the default period, so other tests don't inherit this preference.
+        withLauncherRecovery(()->onView(withContentDescription("Финансовый период: Месяц"))
+                .perform(click()));
+    }
+
     @Test public void createsClientAndOrderAndNavigatesToDarkTheme() {
         int stage=0;
         try {
