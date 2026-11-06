@@ -1,11 +1,18 @@
 package com.mastercrm.offline;
 
+import android.app.UiAutomation;
+import android.os.SystemClock;
+import android.view.accessibility.AccessibilityNodeInfo;
+
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.ext.junit.rules.ActivityScenarioRule;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+
+import java.util.List;
 
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.action.ViewActions.click;
@@ -25,26 +32,77 @@ public class MainActivityUiTest {
     @Rule public ActivityScenarioRule<MainActivity> rule =
             new ActivityScenarioRule<>(MainActivity.class);
 
+    /**
+     * Headless GitHub Android emulators occasionally show a system dialog
+     * "Pixel Launcher isn't responding" or "Quickstep isn't responding".
+     * This is the OS launcher, not MasterCRM. Only dismiss THAT exact dialog;
+     * never conceal a MasterCRM ANR or app error.
+     */
+    private boolean dismissLauncherAnr() {
+        UiAutomation automation=InstrumentationRegistry.getInstrumentation().getUiAutomation();
+        AccessibilityNodeInfo window=automation.getRootInActiveWindow();
+        if(window==null)return false;
+        List<AccessibilityNodeInfo> messages=window.findAccessibilityNodeInfosByText("isn't responding");
+        if(messages==null||messages.isEmpty())return false;
+        boolean launcherAnr=false;
+        for(AccessibilityNodeInfo node:messages){
+            CharSequence raw=node.getText();
+            String message=raw==null?"":raw.toString();
+            if((message.contains("Launcher")||message.contains("Quickstep"))
+                    && message.contains("isn't responding")) {
+                launcherAnr=true;
+                break;
+            }
+        }
+        if(!launcherAnr)return false;
+        List<AccessibilityNodeInfo> close=window.findAccessibilityNodeInfosByText("Close app");
+        if(close==null||close.isEmpty())return false;
+        boolean dismissed=close.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK);
+        if(dismissed)SystemClock.sleep(800);
+        return dismissed;
+    }
+
+    private void withLauncherRecovery(Runnable step) {
+        try {
+            step.run();
+        } catch (RuntimeException | AssertionError first) {
+            if(!dismissLauncherAnr())throw first;
+            // Re-run only after recovering from a positively identified
+            // Pixel Launcher/Quickstep system ANR.
+            step.run();
+        }
+    }
+
     @Test public void createsClientAndOrderAndNavigatesToDarkTheme() {
         int stage=0;
         try {
-            stage=1; onView(withText("MASTERCRM  ·  OFFLINE")).check(matches(isDisplayed()));
-            stage=2; onView(withContentDescription("Раздел: Клиенты")).perform(click());
-            stage=3; onView(withContentDescription("Создать запись")).perform(click());
-            stage=4; onView(withContentDescription("Имя / организация"))
-                    .perform(replaceText("UI автотест клиента"),closeSoftKeyboard());
-            stage=5; onView(withContentDescription("Телефон"))
-                    .perform(replaceText("+79001112233"),closeSoftKeyboard());
-            stage=6; onView(withText("Сохранить")).perform(click());
-            stage=7; onView(withText("UI автотест клиента")).check(matches(isDisplayed()));
+            // Clear launcher ANRs that appeared during the previous test.
+            dismissLauncherAnr();
+            stage=1; withLauncherRecovery(()->onView(withText("MASTERCRM  ·  OFFLINE"))
+                    .check(matches(isDisplayed())));
+            stage=2; withLauncherRecovery(()->onView(withContentDescription("Раздел: Клиенты"))
+                    .perform(click()));
+            stage=3; withLauncherRecovery(()->onView(withContentDescription("Создать запись"))
+                    .perform(click()));
+            stage=4; withLauncherRecovery(()->onView(withContentDescription("Имя / организация"))
+                    .perform(replaceText("UI автотест клиента"),closeSoftKeyboard()));
+            stage=5; withLauncherRecovery(()->onView(withContentDescription("Телефон"))
+                    .perform(replaceText("+79001112233"),closeSoftKeyboard()));
+            stage=6; withLauncherRecovery(()->onView(withText("Сохранить"))
+                    .perform(click()));
+            stage=7; withLauncherRecovery(()->onView(withText("UI автотест клиента"))
+                    .check(matches(isDisplayed())));
 
-            stage=8; onView(withContentDescription("Раздел: Заказы")).perform(click());
-            stage=9; onView(withContentDescription("Создать запись")).perform(click());
-            stage=10; onView(withContentDescription("Работа / услуга"))
-                    .perform(replaceText("Диагностика UI"),closeSoftKeyboard());
-            stage=11; onView(withContentDescription("Стоимость, ₽"))
-                    .perform(scrollTo(),replaceText("1250"),closeSoftKeyboard());
-            stage=12; onView(withText("Сохранить")).perform(click());
+            stage=8; withLauncherRecovery(()->onView(withContentDescription("Раздел: Заказы"))
+                    .perform(click()));
+            stage=9; withLauncherRecovery(()->onView(withContentDescription("Создать запись"))
+                    .perform(click()));
+            stage=10; withLauncherRecovery(()->onView(withContentDescription("Работа / услуга"))
+                    .perform(replaceText("Диагностика UI"),closeSoftKeyboard()));
+            stage=11; withLauncherRecovery(()->onView(withContentDescription("Стоимость, ₽"))
+                    .perform(scrollTo(),replaceText("1250"),closeSoftKeyboard()));
+            stage=12; withLauncherRecovery(()->onView(withText("Сохранить"))
+                    .perform(click()));
             stage=13; rule.getScenario().onActivity(activity -> {
                 CrmStore data=new CrmStore(activity);
                 try {
@@ -53,12 +111,18 @@ public class MainActivityUiTest {
                 } finally { data.close(); }
             });
 
-            stage=14; onView(withText("Закрыть")).perform(click());
-            stage=15; onView(withContentDescription("Раздел: Ещё")).perform(click());
-            stage=16; onView(withText("Тёмная тема")).perform(click());
-            stage=17; onView(withText("Светлая тема")).check(matches(isDisplayed()));
-            stage=18; onView(withText("Светлая тема")).perform(click());
-            stage=19; onView(withText("Тёмная тема")).check(matches(isDisplayed()));
+            stage=14; withLauncherRecovery(()->onView(withText("Закрыть"))
+                    .perform(click()));
+            stage=15; withLauncherRecovery(()->onView(withContentDescription("Раздел: Ещё"))
+                    .perform(click()));
+            stage=16; withLauncherRecovery(()->onView(withText("Тёмная тема"))
+                    .perform(click()));
+            stage=17; withLauncherRecovery(()->onView(withText("Светлая тема"))
+                    .check(matches(isDisplayed())));
+            stage=18; withLauncherRecovery(()->onView(withText("Светлая тема"))
+                    .perform(click()));
+            stage=19; withLauncherRecovery(()->onView(withText("Тёмная тема"))
+                    .check(matches(isDisplayed())));
         } catch(Throwable failure) {
             throw new AssertionError("MainActivity UI test failed at stage "+stage,failure);
         }
