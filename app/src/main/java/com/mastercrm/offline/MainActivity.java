@@ -363,6 +363,8 @@ public final class MainActivity extends Activity {
                 store.jobs(search,filter,page);
         if(list.isEmpty()) {
             empty(unpaidOnly?"Неоплаченных заказов по фильтрам нет":"Заказы не найдены");
+            if(page>0)body.addView(button("← Предыдущая страница",false,
+                    ()->{page--;render();}));
             return;
         }
         for(CrmStore.Job j:list) {
