@@ -71,6 +71,12 @@ public final class MainActivity extends Activity {
     private long photoJobId;
     private String pendingCameraPath="";
     private LinearLayout body;
+    private AlertDialog activeJobDialog;
+    private void closeJobDialog() {
+        AlertDialog dialog=activeJobDialog;
+        activeJobDialog=null;
+        if(dialog!=null&&dialog.isShowing())dialog.dismiss();
+    }
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -711,6 +717,7 @@ public final class MainActivity extends Activity {
         });
     }
     private void jobDetails(long id) {
+        closeJobDialog();
         CrmStore.Job j=store.job(id);
         if(j==null){error(new IllegalArgumentException("Заказ не найден"));return;}
         LinearLayout d=form();
@@ -725,32 +732,49 @@ public final class MainActivity extends Activity {
         line(d,"Доход после расходов",Money.format(j.paid-j.cost));
         if(!j.dueDate.isEmpty())line(d,"Срок",j.dueDate);
         space(d,8);
-        d.addView(button("Редактировать заказ",false,()->jobEditor(j,0)));
+        d.addView(button("Редактировать заказ",false,()->{
+            closeJobDialog();jobEditor(j,0);
+        }));
         space(d,8);
         d.addView(button("Дублировать заказ",false,()->safe(()->{
+            closeJobDialog();
             long copy=store.duplicateJob(j.id);
             render();jobDetails(copy);
         })));
         space(d,8);
-        d.addView(button("+ Оплата",true,()->paymentEditor(j.id,false)));
+        d.addView(button("+ Оплата",true,()->{closeJobDialog();paymentEditor(j.id,false);}));
         space(d,8);
-        d.addView(button("Возврат клиенту",false,()->paymentEditor(j.id,true)));
+        d.addView(button("Возврат клиенту",false,()->{
+            closeJobDialog();paymentEditor(j.id,true);
+        }));
         space(d,8);
-        d.addView(button("+ Расход по заказу",false,()->expenseEditor(j.id)));
+        d.addView(button("+ Расход по заказу",false,()->{
+            closeJobDialog();expenseEditor(j.id);
+        }));
         space(d,8);
-        d.addView(button("Заказ-наряд PDF",false,()->exportPdf(j.id)));
+        d.addView(button("Заказ-наряд PDF",false,()->{
+            closeJobDialog();exportPdf(j.id);
+        }));
         space(d,14);
         d.addView(label("Фотографии заказа",17,true,text));
         space(d,7);
         d.addView(label("Фото хранятся только на устройстве и включаются в защищённую копию .mcrm5.",12,false,sub));
         space(d,8);
-        d.addView(button("+ Фото до работы",false,()->choosePhoto(j.id,true)));
+        d.addView(button("+ Фото до работы",false,()->{
+            closeJobDialog();choosePhoto(j.id,true);
+        }));
         space(d,6);
-        d.addView(button("Камера · до работы",false,()->capturePhoto(j.id,true)));
+        d.addView(button("Камера · до работы",false,()->{
+            closeJobDialog();capturePhoto(j.id,true);
+        }));
         space(d,6);
-        d.addView(button("+ Фото после работы",false,()->choosePhoto(j.id,false)));
+        d.addView(button("+ Фото после работы",false,()->{
+            closeJobDialog();choosePhoto(j.id,false);
+        }));
         space(d,6);
-        d.addView(button("Камера · после работы",false,()->capturePhoto(j.id,false)));
+        d.addView(button("Камера · после работы",false,()->{
+            closeJobDialog();capturePhoto(j.id,false);
+        }));
         List<CrmStore.Photo> photos=store.photos(j.id);
         photoSection(d,"До работы",photos,"before",j.id);
         photoSection(d,"После работы",photos,"after",j.id);
@@ -763,8 +787,13 @@ public final class MainActivity extends Activity {
             if(!p.note.isEmpty())d.addView(label(p.note,12,false,sub));
         }
         ScrollView scroll=new ScrollView(this);scroll.addView(d);
-        alertBuilder().setTitle(j.number).setView(scroll)
-                .setPositiveButton("Закрыть",null).show();
+        AlertDialog dialog=alertBuilder().setTitle(j.number).setView(scroll)
+                .setPositiveButton("Закрыть",null).create();
+        activeJobDialog=dialog;
+        dialog.setOnDismissListener(ignored->{
+            if(activeJobDialog==dialog)activeJobDialog=null;
+        });
+        dialog.show();
     }
     private void paymentEditor(long id,boolean refund) {
         LinearLayout f=form();
@@ -898,6 +927,7 @@ public final class MainActivity extends Activity {
                     .setNegativeButton("Отмена",null)
                     .setPositiveButton("Удалить",(dialog,which)->safe(()->{
                         store.removePhoto(p.id,jobId);
+                        closeJobDialog();
                         render();jobDetails(jobId);
                     })).show()));
             item.addView(actions,new LinearLayout.LayoutParams(0,-2,1));
