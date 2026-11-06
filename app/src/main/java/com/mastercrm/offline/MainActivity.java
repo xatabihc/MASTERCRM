@@ -311,7 +311,7 @@ public final class MainActivity extends Activity {
                 dueMode==2,()->showDueOrders(dueMode==2?0:2)));
         if(dueMode!=0) {
             List<CrmStore.Job> dated=dueMode==1?store.overdueJobs(page):
-                    store.upcomingJobs(7,100);
+                    store.upcomingJobsPage(7,page);
             if(dated.isEmpty()){
                 LinearLayout empty=card(body);
                 empty.addView(label("Заказов с таким сроком нет",15,false,sub));
@@ -319,12 +319,10 @@ public final class MainActivity extends Activity {
                 for(CrmStore.Job j:dated) {
                     LinearLayout c=card(body);c.addView(jobRow(j));
                 }
-                if(dueMode==1) {
-                    if(page>0)body.addView(button("← Предыдущая страница",false,
-                            ()->{page--;render();}));
-                    if(dated.size()==100)body.addView(button("Следующая страница →",false,
-                            ()->{page++;render();}));
-                }
+                if(page>0)body.addView(button("← Предыдущая страница",false,
+                        ()->{page--;render();}));
+                if(dated.size()==100)body.addView(button("Следующая страница →",false,
+                        ()->{page++;render();}));
             }
             return;
         }
