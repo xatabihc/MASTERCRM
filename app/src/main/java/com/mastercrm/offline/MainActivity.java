@@ -4,6 +4,10 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.DatePickerDialog;
 import android.content.Intent;
+import android.content.ClipData;
+import android.content.ActivityNotFoundException;
+import android.provider.MediaStore;
+import androidx.core.content.FileProvider;
 import android.graphics.Color;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -36,6 +40,8 @@ import android.widget.Toast;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.IOException;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -51,7 +57,7 @@ import java.util.Locale;
 
 /** No Internet, accounts, permissions or third-party tracking. Android 8+. */
 public final class MainActivity extends Activity {
-    private static final int EXPORT_JSON = 21, IMPORT_JSON = 22, EXPORT_PDF = 23, PHOTO_BEFORE = 24, PHOTO_AFTER = 25, EXPORT_SECURE = 26, IMPORT_SECURE = 27, EXPORT_STREAM = 28, IMPORT_STREAM = 29, VERIFY_STREAM = 30;
+    private static final int EXPORT_JSON = 21, IMPORT_JSON = 22, EXPORT_PDF = 23, PHOTO_BEFORE = 24, PHOTO_AFTER = 25, EXPORT_SECURE = 26, IMPORT_SECURE = 27, EXPORT_STREAM = 28, IMPORT_STREAM = 29, VERIFY_STREAM = 30, CAMERA_BEFORE = 31, CAMERA_AFTER = 32;
     private static final String[] TABS = {"Обзор","Заказы","Клиенты","Финансы","Ещё"};
     private CrmStore store;
     private int tab = 0, page = 0;
@@ -63,7 +69,14 @@ public final class MainActivity extends Activity {
     private int bg, panel, text, sub, accent, stroke, green, red;
     private long pdfJobId;
     private long photoJobId;
+    private String pendingCameraPath="";
     private LinearLayout body;
+    private AlertDialog activeJobDialog;
+    private void closeJobDialog() {
+        AlertDialog dialog=activeJobDialog;
+        activeJobDialog=null;
+        if(dialog!=null&&dialog.isShowing())dialog.dismiss();
+    }
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -71,7 +84,10 @@ public final class MainActivity extends Activity {
         // Android 15 enforces edge-to-edge. Handle all system bar insets in our
         // root view so the bottom tabs cannot overlap the OS Home/taskbar area.
         if (Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
-        if(state!=null)photoJobId=state.getLong("photoJobId",0);
+        if(state!=null) {
+            photoJobId=state.getLong("photoJobId",0);
+            pendingCameraPath=state.getString("pendingCameraPath","");
+        }
         dark = getPreferences(MODE_PRIVATE).getBoolean("dark", false);
         String saved=getPreferences(MODE_PRIVATE).getString("financial_period","month");
         period=Arrays.asList("day","week","month","all").contains(saved)?saved:"month";
@@ -81,6 +97,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onSaveInstanceState(Bundle out) {
         out.putLong("photoJobId",photoJobId);
+        out.putString("pendingCameraPath",pendingCameraPath);
         super.onSaveInstanceState(out);
     }
     @Override public void onDestroy() { if (store != null) store.close(); super.onDestroy(); }
@@ -700,6 +717,7 @@ public final class MainActivity extends Activity {
         });
     }
     private void jobDetails(long id) {
+        closeJobDialog();
         CrmStore.Job j=store.job(id);
         if(j==null){error(new IllegalArgumentException("Заказ не найден"));return;}
         LinearLayout d=form();
@@ -714,28 +732,49 @@ public final class MainActivity extends Activity {
         line(d,"Доход после расходов",Money.format(j.paid-j.cost));
         if(!j.dueDate.isEmpty())line(d,"Срок",j.dueDate);
         space(d,8);
-        d.addView(button("Редактировать заказ",false,()->jobEditor(j,0)));
+        d.addView(button("Редактировать заказ",false,()->{
+            closeJobDialog();jobEditor(j,0);
+        }));
         space(d,8);
         d.addView(button("Дублировать заказ",false,()->safe(()->{
+            closeJobDialog();
             long copy=store.duplicateJob(j.id);
             render();jobDetails(copy);
         })));
         space(d,8);
-        d.addView(button("+ Оплата",true,()->paymentEditor(j.id,false)));
+        d.addView(button("+ Оплата",true,()->{closeJobDialog();paymentEditor(j.id,false);}));
         space(d,8);
-        d.addView(button("Возврат клиенту",false,()->paymentEditor(j.id,true)));
+        d.addView(button("Возврат клиенту",false,()->{
+            closeJobDialog();paymentEditor(j.id,true);
+        }));
         space(d,8);
-        d.addView(button("+ Расход по заказу",false,()->expenseEditor(j.id)));
+        d.addView(button("+ Расход по заказу",false,()->{
+            closeJobDialog();expenseEditor(j.id);
+        }));
         space(d,8);
-        d.addView(button("Заказ-наряд PDF",false,()->exportPdf(j.id)));
+        d.addView(button("Заказ-наряд PDF",false,()->{
+            closeJobDialog();exportPdf(j.id);
+        }));
         space(d,14);
         d.addView(label("Фотографии заказа",17,true,text));
         space(d,7);
-        d.addView(label("Фото сохраняются только в приложении и включаются в JSON-копию.",12,false,sub));
+        d.addView(label("Фото хранятся только на устройстве и включаются в защищённую копию .mcrm5.",12,false,sub));
         space(d,8);
-        d.addView(button("+ Фото до работы",false,()->choosePhoto(j.id,true)));
+        d.addView(button("+ Фото до работы",false,()->{
+            closeJobDialog();choosePhoto(j.id,true);
+        }));
         space(d,6);
-        d.addView(button("+ Фото после работы",false,()->choosePhoto(j.id,false)));
+        d.addView(button("Камера · до работы",false,()->{
+            closeJobDialog();capturePhoto(j.id,true);
+        }));
+        space(d,6);
+        d.addView(button("+ Фото после работы",false,()->{
+            closeJobDialog();choosePhoto(j.id,false);
+        }));
+        space(d,6);
+        d.addView(button("Камера · после работы",false,()->{
+            closeJobDialog();capturePhoto(j.id,false);
+        }));
         List<CrmStore.Photo> photos=store.photos(j.id);
         photoSection(d,"До работы",photos,"before",j.id);
         photoSection(d,"После работы",photos,"after",j.id);
@@ -748,8 +787,13 @@ public final class MainActivity extends Activity {
             if(!p.note.isEmpty())d.addView(label(p.note,12,false,sub));
         }
         ScrollView scroll=new ScrollView(this);scroll.addView(d);
-        alertBuilder().setTitle(j.number).setView(scroll)
-                .setPositiveButton("Закрыть",null).show();
+        AlertDialog dialog=alertBuilder().setTitle(j.number).setView(scroll)
+                .setPositiveButton("Закрыть",null).create();
+        activeJobDialog=dialog;
+        dialog.setOnDismissListener(ignored->{
+            if(activeJobDialog==dialog)activeJobDialog=null;
+        });
+        dialog.show();
     }
     private void paymentEditor(long id,boolean refund) {
         LinearLayout f=form();
@@ -801,6 +845,65 @@ public final class MainActivity extends Activity {
         i.setType("image/*");
         startActivityForResult(i,before?PHOTO_BEFORE:PHOTO_AFTER);
     }
+    /** Use an external camera app and a temporary, private output URI.
+     * No CAMERA / storage permissions are necessary for ACTION_IMAGE_CAPTURE.
+     */
+    private void capturePhoto(long jobId,boolean before) {
+        if(store.job(jobId)==null){error(new IllegalArgumentException("Заказ не найден"));return;}
+        final File file;
+        try {
+            File dir=new File(getCacheDir(),"camera");
+            if(!dir.exists()&&!dir.mkdirs())throw new IOException("Не удалось создать папку для камеры");
+            file=File.createTempFile("capture_",".jpg",dir);
+        } catch(IOException ex) {
+            error(new IllegalStateException("Не удалось создать временный файл фотографии",ex));
+            return;
+        }
+        photoJobId=jobId;
+        pendingCameraPath=file.getAbsolutePath();
+        Uri output=FileProvider.getUriForFile(this,getPackageName()+".fileprovider",file);
+        Intent camera=new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        camera.putExtra(MediaStore.EXTRA_OUTPUT,output);
+        camera.setClipData(ClipData.newRawUri("MasterCRM photo",output));
+        camera.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            startActivityForResult(camera,before?CAMERA_BEFORE:CAMERA_AFTER);
+        } catch(ActivityNotFoundException|SecurityException ex) {
+            pendingCameraPath="";
+            file.delete();
+            error(new IllegalStateException("Камера недоступна на этом устройстве",ex));
+        }
+    }
+    /** Saves a compressed photo without blocking the main UI thread. */
+    private void savePhotoAsync(long jobId,String kind,Uri uri,File temporary) {
+        new Thread(()->{
+            try {
+                if(store.job(jobId)==null)throw new IllegalArgumentException("Заказ не найден");
+                byte[] jpeg=photoJpeg(uri);
+                store.addPhoto(jobId,kind,jpeg);
+                runOnUiThread(()->{
+                    Toast.makeText(this,"Фото сохранено",Toast.LENGTH_SHORT).show();
+                    render();jobDetails(jobId);
+                });
+            }catch(Exception ex){
+                runOnUiThread(()->error(ex));
+            }finally{
+                if(temporary!=null)temporary.delete();
+            }
+        },"mastercrm-photo-import").start();
+    }
+    private Bitmap thumbnail(byte[] jpeg) {
+        BitmapFactory.Options o=new BitmapFactory.Options();
+        o.inJustDecodeBounds=true;
+        BitmapFactory.decodeByteArray(jpeg,0,jpeg.length,o);
+        if(o.outWidth<1||o.outHeight<1)return null;
+        int sample=1;
+        while(Math.max(o.outWidth,o.outHeight)/sample>320)sample*=2;
+        o.inJustDecodeBounds=false;
+        o.inSampleSize=sample;
+        return BitmapFactory.decodeByteArray(jpeg,0,jpeg.length,o);
+    }
+
     private void photoSection(LinearLayout parent,String title,List<CrmStore.Photo> photos,String kind,long jobId) {
         parent.addView(label(title,14,true,sub));space(parent,5);
         boolean present=false;
@@ -810,7 +913,7 @@ public final class MainActivity extends Activity {
             LinearLayout item=row();
             ImageView thumb=new ImageView(this);
             thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            Bitmap b=BitmapFactory.decodeByteArray(p.jpeg,0,p.jpeg.length);
+            Bitmap b=thumbnail(p.jpeg);
             if(b==null)continue;
             thumb.setImageBitmap(b);
             thumb.setContentDescription("Открыть фото: "+title);
@@ -824,6 +927,7 @@ public final class MainActivity extends Activity {
                     .setNegativeButton("Отмена",null)
                     .setPositiveButton("Удалить",(dialog,which)->safe(()->{
                         store.removePhoto(p.id,jobId);
+                        closeJobDialog();
                         render();jobDetails(jobId);
                     })).show()));
             item.addView(actions,new LinearLayout.LayoutParams(0,-2,1));
@@ -912,17 +1016,27 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data) {
         super.onActivityResult(requestCode,resultCode,data);
+        if(requestCode==CAMERA_BEFORE||requestCode==CAMERA_AFTER) {
+            String path=pendingCameraPath;
+            pendingCameraPath="";
+            if(path==null||path.isEmpty())return;
+            File temp=new File(path);
+            if(resultCode==RESULT_OK && temp.length()>0) {
+                savePhotoAsync(photoJobId,
+                        requestCode==CAMERA_BEFORE?"before":"after",
+                        Uri.fromFile(temp),temp);
+            } else {
+                temp.delete();
+                if(resultCode==RESULT_OK)
+                    error(new IllegalStateException("Камера не сохранила фотографию"));
+            }
+            return;
+        }
         if(resultCode!=RESULT_OK||data==null||data.getData()==null)return;
         Uri uri=data.getData();
         if(requestCode==PHOTO_BEFORE||requestCode==PHOTO_AFTER) {
-            safe(()->{
-                long id=photoJobId;
-                if(store.job(id)==null)throw new IllegalArgumentException("Заказ для фотографии не найден");
-                byte[] jpeg=photoJpeg(uri);
-                store.addPhoto(id,requestCode==PHOTO_BEFORE?"before":"after",jpeg);
-                Toast.makeText(this,"Фото сохранено",Toast.LENGTH_SHORT).show();
-                render();jobDetails(id);
-            });
+            savePhotoAsync(photoJobId,
+                    requestCode==PHOTO_BEFORE?"before":"after",uri,null);
         } else if(requestCode==EXPORT_STREAM) {
             encryptedBackupPrompt(uri,true,true);
         } else if(requestCode==VERIFY_STREAM) {

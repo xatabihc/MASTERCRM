@@ -1,13 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- No INTERNET permission, contacts access, telemetry or cloud sync. -->
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <application
         android:allowBackup="false"
         android:usesCleartextTraffic="false"
-        android:label="MasterCRM Preview"
+        android:label="MasterCRM Offline"
         android:icon="@drawable/ic_logo"
         android:theme="@style/AppTheme"
         android:supportsRtl="true">
+        <!-- Only app-private temporary camera images; camera receives a one-time URI grant. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
         <activity
             android:name=".MainActivity"
             android:exported="true"
