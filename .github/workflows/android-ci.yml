@@ -31,6 +31,16 @@ jobs:
         run: gradle --no-daemon :app:testDebugUnitTest :app:lintDebug
       - name: Build preview APK
         run: gradle --no-daemon :app:assembleDebug
+      - name: Verify preview identity, offline permissions and APK signature
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='com.mastercrm.offline.preview'"
+          if "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" | grep -F 'android.permission.INTERNET'; then
+            echo "Unexpected INTERNET permission" >&2
+            exit 1
+          fi
+          test -s "$APK"
       - name: Upload non-production preview APK
         uses: actions/upload-artifact@v4
         with:
