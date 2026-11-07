@@ -132,6 +132,26 @@ public class MainActivityUiTest {
         });
     }
 
+    @Test public void clientDraftSurvivesLandscapeAndPortrait() {
+        dismissLauncherAnr();
+        onView(withContentDescription("Раздел: Клиенты")).perform(click());
+        onView(withContentDescription("Создать запись")).perform(click());
+        onView(withContentDescription("Имя / организация"))
+                .perform(replaceText("Черновик поворота"),closeSoftKeyboard());
+        rule.getScenario().onActivity(activity->activity.setRequestedOrientation(
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE));
+        SystemClock.sleep(1000);
+        onView(withContentDescription("Имя / организация"))
+                .check(matches(withText("Черновик поворота")));
+        onView(withText("Сохранить")).check(matches(isDisplayed()));
+        rule.getScenario().onActivity(activity->activity.setRequestedOrientation(
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT));
+        SystemClock.sleep(1000);
+        onView(withContentDescription("Имя / организация"))
+                .check(matches(withText("Черновик поворота")));
+        onView(withText("Отмена")).perform(click());
+    }
+
     @Test public void clientDraftSurvivesRecreationWithoutSaving() {
         dismissLauncherAnr();
         onView(withContentDescription("Раздел: Клиенты")).perform(click());
