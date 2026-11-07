@@ -116,7 +116,25 @@ public class MainActivityUiTest {
         onView(withContentDescription("Раздел: Клиенты")).perform(click());
         onView(withContentDescription("Создать запись")).perform(click());
         onView(withContentDescription("Примечание")).perform(scrollTo(),click());
-        SystemClock.sleep(800); // Wait for the platform IME animation, not a database operation.
+        onView(withContentDescription("Примечание")).perform(new androidx.test.espresso.ViewAction() {
+            public org.hamcrest.Matcher<android.view.View> getConstraints() {
+                return androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom(android.widget.EditText.class);
+            }
+            public String getDescription(){return "Show IME and wait for reported visibility";}
+            public void perform(androidx.test.espresso.UiController ui,android.view.View view) {
+                view.requestFocus();
+                android.view.inputmethod.InputMethodManager ime=(android.view.inputmethod.InputMethodManager)
+                        view.getContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+                ime.showSoftInput(view,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+                for(int i=0;i<100;i++) {
+                    ui.loopMainThreadForAtLeast(100);
+                    androidx.core.view.WindowInsetsCompat insets=androidx.core.view.ViewCompat.getRootWindowInsets(view);
+                    if(insets!=null && insets.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime())) {
+                        ui.loopMainThreadForAtLeast(400);return;
+                    }
+                }
+            }
+        });
         onView(withContentDescription("Примечание")).check((view,failure)->{
             if(failure!=null)throw failure;
             org.junit.Assert.assertTrue(view.hasFocus());
