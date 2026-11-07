@@ -4,6 +4,8 @@
 # state across separate lines there does not work.
 set -uo pipefail
 
+# Exercise actual soft-input insets even when the emulator exposes a hardware keyboard.
+adb shell settings put secure show_ime_with_hard_keyboard 1
 status=0
 gradle --no-daemon connectedDebugAndroidTest || status=$?
 

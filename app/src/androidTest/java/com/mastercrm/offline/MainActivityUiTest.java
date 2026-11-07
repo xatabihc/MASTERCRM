@@ -73,6 +73,109 @@ public class MainActivityUiTest {
         }
     }
 
+    @Test public void focusedFieldRemainsAboveKeyboard() {
+        dismissLauncherAnr();
+        onView(withContentDescription("Раздел: Клиенты")).perform(click());
+        onView(withContentDescription("Создать запись")).perform(click());
+        onView(withContentDescription("Примечание")).perform(scrollTo(),click());
+        SystemClock.sleep(800); // Wait for the platform IME animation, not a database operation.
+        onView(withContentDescription("Примечание")).check((view,failure)->{
+            if(failure!=null)throw failure;
+            org.junit.Assert.assertTrue(view.hasFocus());
+            androidx.core.view.WindowInsetsCompat insets=androidx.core.view.ViewCompat.getRootWindowInsets(view);
+            org.junit.Assert.assertNotNull(insets);
+            org.junit.Assert.assertTrue("Test must exercise a visible keyboard",
+                    insets.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()));
+            android.graphics.Rect frame=new android.graphics.Rect();
+            view.getWindowVisibleDisplayFrame(frame);
+            int[] position=new int[2];view.getLocationOnScreen(position);
+            org.junit.Assert.assertTrue("Focused field must fit above the IME",
+                    position[1]+view.getHeight()<=frame.bottom);
+        });
+        onView(withContentDescription("Примечание")).perform(closeSoftKeyboard());
+        onView(withText("Отмена")).perform(click());
+    }
+
+    @Test public void orderAndPaymentDraftsSurviveRecreationWithoutFinancialWrites() {
+        String title="UI draft financial invariant 1.6";
+        final long[] id={0};
+        rule.getScenario().onActivity(activity->{
+            try(CrmStore db=new CrmStore(activity)) {
+                CrmStore.Client client=new CrmStore.Client();client.name="Draft invariant client";
+                CrmStore.Job job=new CrmStore.Job();job.clientId=db.saveClient(client);
+                job.title=title;job.price=200000;id[0]=db.saveJob(job);
+                db.addPayment(id[0],50000,"Initial synthetic payment");
+            }
+        });
+        dismissLauncherAnr();
+        onView(withContentDescription("Раздел: Заказы")).perform(click());
+        onView(withText(title)).perform(scrollTo(),click());
+        onView(withText("Редактировать заказ")).perform(scrollTo(),click());
+        onView(withContentDescription("Стоимость, ₽"))
+                .perform(scrollTo(),replaceText("9999.99"),closeSoftKeyboard());
+        rule.getScenario().recreate();
+        onView(withContentDescription("Стоимость, ₽")).check(matches(withText("9999.99")));
+        onView(withText("Отмена")).perform(click());
+        onView(withText(title)).perform(scrollTo(),click());
+        onView(withText("+ Оплата")).perform(scrollTo(),click());
+        onView(withContentDescription("Сумма, ₽"))
+                .perform(replaceText("456.78"),closeSoftKeyboard());
+        rule.getScenario().recreate();
+        onView(withContentDescription("Сумма, ₽")).check(matches(withText("456.78")));
+        onView(withText("Отмена")).perform(click());
+        rule.getScenario().onActivity(activity->{
+            try(CrmStore db=new CrmStore(activity)) {
+                assertEquals(200000,db.job(id[0]).price);
+                assertEquals(50000,db.job(id[0]).paid);
+            }
+        });
+    }
+
+    @Test public void clientDraftSurvivesRecreationWithoutSaving() {
+        dismissLauncherAnr();
+        onView(withContentDescription("Раздел: Клиенты")).perform(click());
+        onView(withContentDescription("Создать запись")).perform(click());
+        onView(withContentDescription("Имя / организация"))
+                .perform(replaceText("Несохранённый черновик 1.6"),closeSoftKeyboard());
+        onView(withContentDescription("Примечание"))
+                .perform(scrollTo(),replaceText("Длинный текст\nВторая строка"),closeSoftKeyboard());
+        rule.getScenario().recreate();
+        onView(withContentDescription("Имя / организация"))
+                .check(matches(withText("Несохранённый черновик 1.6")));
+        onView(withContentDescription("Примечание"))
+                .check(matches(withText("Длинный текст\nВторая строка")));
+        onView(withText("Отмена")).perform(click());
+        rule.getScenario().onActivity(activity->{
+            try(CrmStore db=new CrmStore(activity)) {
+                assertEquals(0,db.clients("Несохранённый черновик 1.6",0).size());
+            }
+        });
+    }
+
+    @Test public void expenseDraftSurvivesRecreationWithoutChangingMoney() {
+        dismissLauncherAnr();
+        onView(withContentDescription("Раздел: Финансы")).perform(click());
+        onView(withContentDescription("Создать запись")).perform(click());
+        onView(withContentDescription("Сумма, ₽"))
+                .perform(scrollTo(),replaceText("1234.56"),closeSoftKeyboard());
+        onView(withContentDescription("Комментарий"))
+                .perform(scrollTo(),replaceText("Черновик расхода"),closeSoftKeyboard());
+        rule.getScenario().recreate();
+        onView(withContentDescription("Сумма, ₽")).check(matches(withText("1234.56")));
+        onView(withContentDescription("Комментарий")).check(matches(withText("Черновик расхода")));
+        onView(withText("Отмена")).perform(click());
+    }
+
+    @Test public void searchAndTabSurviveRecreation() {
+        dismissLauncherAnr();
+        onView(withContentDescription("Раздел: Клиенты")).perform(click());
+        onView(androidx.test.espresso.matcher.ViewMatchers.withHint("Имя или телефон клиента"))
+                .perform(replaceText("Поиск 1.6"),closeSoftKeyboard());
+        rule.getScenario().recreate();
+        onView(androidx.test.espresso.matcher.ViewMatchers.withHint("Имя или телефон клиента"))
+                .check(matches(withText("Поиск 1.6")));
+    }
+
     @Test public void reusesHistoricalServiceOnlyAfterExplicitSelection() {
         final String uniqueTitle="Услуга из истории UI 1.1";
         rule.getScenario().onActivity(activity->{

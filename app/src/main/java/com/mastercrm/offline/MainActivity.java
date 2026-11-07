@@ -20,7 +20,10 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Build;
-import android.view.WindowInsets;
+import android.graphics.Rect;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.view.Gravity;
@@ -73,6 +76,71 @@ public final class MainActivity extends Activity {
     private String pendingCameraPath="";
     private LinearLayout body;
     private AlertDialog activeJobDialog;
+    private AlertDialog editorDialog;
+    private LinearLayout editorContent;
+    private String editorType = "";
+    private long editorId;
+    private long[] editorClient;
+    private Bundle restoringDraft;
+    private EditText searchInput;
+    private ScrollView screenScroll;
+
+    private void beginEditor(String type, long id) {
+        editorType=type; editorId=id; editorClient=null;
+    }
+    private void saveFields(View view, Bundle values, String path) {
+        if(view instanceof EditText) {
+            values.putString(path,((EditText)view).getText().toString());
+            if(view.hasFocus())values.putString("focus",path);
+        }
+        else if(view instanceof Spinner) values.putInt(path,((Spinner)view).getSelectedItemPosition());
+        else if(view instanceof ViewGroup) {
+            ViewGroup group=(ViewGroup)view;
+            for(int i=0;i<group.getChildCount();i++)saveFields(group.getChildAt(i),values,path+"/"+i);
+        }
+    }
+    private void restoreFields(View view, Bundle values, String path) {
+        if(view instanceof EditText && values.containsKey(path)) {
+            ((EditText)view).setText(values.getString(path));
+            if(path.equals(values.getString("focus")))view.requestFocus();
+        }
+        else if(view instanceof Spinner && values.containsKey(path))((Spinner)view).setSelection(values.getInt(path));
+        else if(view instanceof ViewGroup) {
+            ViewGroup group=(ViewGroup)view;
+            for(int i=0;i<group.getChildCount();i++)restoreFields(group.getChildAt(i),values,path+"/"+i);
+        }
+    }
+    private void restoreEditor(Bundle draft) {
+        if(draft==null)return;
+        restoringDraft=draft;
+        long id=draft.getLong("id");
+        switch(draft.getString("type","")) {
+            case "client": clientEditor(id==0?null:store.client(id)); break;
+            case "job": jobEditor(id==0?null:store.job(id),draft.getLong("client")); break;
+            case "payment": paymentEditor(id,false); break;
+            case "refund": paymentEditor(id,true); break;
+            case "expense": expenseEditor(id); break;
+        }
+        restoringDraft=null;
+    }
+
+    /** Let the dialog resize above IME; ScrollView then keeps the cursor visible. */
+    private void prepareFormWindow(AlertDialog dialog, ScrollView scroll) {
+        scroll.setFillViewport(true);
+        scroll.setClipToPadding(false);
+        if(dialog.getWindow()!=null) {
+            dialog.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
+            dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
+        scroll.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{
+            View focused=scroll.findFocus();
+            if(focused instanceof EditText) focused.post(()->{
+                Rect rect=new Rect();focused.getDrawingRect(rect);
+                focused.requestRectangleOnScreen(rect,false);
+            });
+        });
+    }
+
     private void closeJobDialog() {
         AlertDialog dialog=activeJobDialog;
         activeJobDialog=null;
@@ -84,7 +152,7 @@ public final class MainActivity extends Activity {
         store = new CrmStore(this);
         // Android 15 enforces edge-to-edge. Handle all system bar insets in our
         // root view so the bottom tabs cannot overlap the OS Home/taskbar area.
-        if (Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         if(state!=null) {
             photoJobId=state.getLong("photoJobId",0);
             pendingCameraPath=state.getString("pendingCameraPath","");
@@ -93,12 +161,31 @@ public final class MainActivity extends Activity {
         String saved=getPreferences(MODE_PRIVATE).getString("financial_period","month");
         period=Arrays.asList("day","week","month","all").contains(saved)?saved:"month";
         regularOnly=getPreferences(MODE_PRIVATE).getBoolean("regular_only",false);
+        if(state!=null) {
+            tab=state.getInt("tab");page=state.getInt("page");
+            search=state.getString("search","");filter=state.getString("filter","");
+            dueMode=state.getInt("dueMode");unpaidOnly=state.getBoolean("unpaidOnly");
+        }
         palette();
         render();
+        if(state!=null) {
+            screenScroll.post(()->screenScroll.scrollTo(0,state.getInt("scroll")));
+            restoreEditor(state.getBundle("draft"));
+        }
     }
     @Override protected void onSaveInstanceState(Bundle out) {
         out.putLong("photoJobId",photoJobId);
         out.putString("pendingCameraPath",pendingCameraPath);
+        out.putInt("tab",tab);out.putInt("page",page);
+        out.putString("search",searchInput==null?search:searchInput.getText().toString());
+        out.putString("filter",filter);out.putInt("dueMode",dueMode);
+        out.putBoolean("unpaidOnly",unpaidOnly);
+        out.putInt("scroll",screenScroll==null?0:screenScroll.getScrollY());
+        if(editorDialog!=null && editorDialog.isShowing() && !editorType.isEmpty()) {
+            Bundle draft=new Bundle();draft.putString("type",editorType);draft.putLong("id",editorId);
+            if(editorClient!=null)draft.putLong("client",editorClient[0]);
+            saveFields(editorContent,draft,"fields");out.putBundle("draft",draft);
+        }
         super.onSaveInstanceState(out);
     }
     @Override public void onDestroy() { if (store != null) store.close(); super.onDestroy(); }
@@ -148,7 +235,7 @@ public final class MainActivity extends Activity {
     private Button button(String title, boolean primary, Runnable action) {
         Button b=new Button(this);
         b.setText(title);b.setTextSize(14);b.setAllCaps(false);
-        b.setTextColor(primary ? Color.WHITE : text);
+        b.setTextColor(primary ? (dark ? Color.parseColor("#111827") : Color.WHITE) : text);
         b.setBackground(shape(primary ? accent : panel,primary?0:stroke,12));
         b.setMinHeight(dp(48));b.setPadding(dp(12),dp(9),dp(12),dp(9));
         b.setOnClickListener(v->action.run());return b;
@@ -162,7 +249,7 @@ public final class MainActivity extends Activity {
         TextView a=label(left,14,false,sub),b=label(right,14,true,text);
         x.addView(a,new LinearLayout.LayoutParams(0,-2,1));
         b.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
-        x.addView(b,new LinearLayout.LayoutParams(-2,-2));
+        x.addView(b,new LinearLayout.LayoutParams(0,-2,1));
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,dp(4),0,dp(4));c.addView(x,p);
     }
     private void banner(LinearLayout c,String title,String value) {
@@ -176,7 +263,7 @@ public final class MainActivity extends Activity {
     private void safe(ThrowingRunnable r) {
         try {r.run();} catch(Exception e) { error(e); }
     }
-    private void navigate(int i) {tab=i;page=0;search="";filter="";dueMode=0;unpaidOnly=false;render();}
+    private void navigate(int i) {if(tab==i)return;tab=i;page=0;search="";filter="";dueMode=0;unpaidOnly=false;render();}
     private void showDueOrders(int mode) {
         tab=1;page=0;search="";filter="";dueMode=mode;unpaidOnly=false;render();
     }
@@ -184,15 +271,16 @@ public final class MainActivity extends Activity {
         palette();
         LinearLayout base=column();
         base.setBackgroundColor(bg);
-        if (Build.VERSION.SDK_INT >= 30) {
-            base.setOnApplyWindowInsetsListener((view, insets) -> {
-                android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
-                view.setPadding(bars.left,bars.top,bars.right,bars.bottom);
-                return insets;
-            });
-        }
+        ViewCompat.setOnApplyWindowInsetsListener(base,(view,insets)->{
+            androidx.core.graphics.Insets safe=insets.getInsets(
+                    WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout()
+                            | WindowInsetsCompat.Type.ime());
+            view.setPadding(safe.left,safe.top,safe.right,safe.bottom);
+            return insets;
+        });
+        searchInput=null;
         setContentView(base);
-        if (Build.VERSION.SDK_INT >= 30) base.requestApplyInsets();
+        ViewCompat.requestApplyInsets(base);
         LinearLayout top=column();top.setPadding(dp(18),dp(17),dp(18),dp(13));
         top.addView(label("MASTERCRM  ·  OFFLINE",12,true,accent));
         LinearLayout title=row();
@@ -209,7 +297,7 @@ public final class MainActivity extends Activity {
         top.addView(title);
         top.addView(label("Данные хранятся только на этом устройстве",12,false,sub));
         base.addView(top);
-        ScrollView sc=new ScrollView(this);sc.setFillViewport(true);
+        ScrollView sc=new ScrollView(this);sc.setFillViewport(true);screenScroll=sc;
         body=column();body.setPadding(dp(16),dp(4),dp(16),dp(20));
         sc.addView(body,new ScrollView.LayoutParams(-1,-2));
         base.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
@@ -233,7 +321,7 @@ public final class MainActivity extends Activity {
             n.setMinHeight(dp(52));
             n.setBackground(i==tab?shape(bg,0,11):null);
             n.setOnClickListener(v->navigate(at));
-            nav.addView(n,new LinearLayout.LayoutParams(0,dp(52),1));
+            nav.addView(n,new LinearLayout.LayoutParams(0,-2,1));
         }
         base.addView(nav);
     }
@@ -258,7 +346,7 @@ public final class MainActivity extends Activity {
                 render();
             });
             b.setContentDescription("Финансовый период: "+labels[i]);
-            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(46),1);
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);
             if(i>0)p.setMargins(dp(4),0,0,0);
             options.addView(b,p);
         }
@@ -309,14 +397,29 @@ public final class MainActivity extends Activity {
     }
     private void searchBar(LinearLayout target,String hint) {
         EditText edit=new EditText(this);edit.setSingleLine(true);
+        searchInput=edit;edit.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
         edit.setText(search);edit.setHint(hint);edit.setTextColor(text);edit.setHintTextColor(sub);
         edit.setTextSize(15);edit.setPadding(dp(14),dp(10),dp(14),dp(10));
         edit.setBackground(shape(panel,stroke,12));
-        target.addView(edit,new LinearLayout.LayoutParams(-1,dp(52)));
+        edit.setMinHeight(dp(52));
+        target.addView(edit,new LinearLayout.LayoutParams(-1,-2));
+        Runnable submit=()->{
+            search=edit.getText().toString().trim();page=0;
+            ((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE))
+                    .hideSoftInputFromWindow(edit.getWindowToken(),0);
+            render();
+        };
+        edit.setOnEditorActionListener((v,action,event)->{
+            if(action==android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH){submit.run();return true;}
+            return false;
+        });
+        edit.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s,int start,int count,int after) {}
+            public void onTextChanged(CharSequence s,int start,int before,int count) {search=s.toString();}
+            public void afterTextChanged(android.text.Editable s) {}
+        });
         space(target,8);
-        target.addView(button("Найти",true,()->{
-            search=edit.getText().toString().trim();page=0;render();
-        }));
+        target.addView(button("Найти",true,submit));
         space(target,13);
     }
     private void jobs() {
@@ -380,6 +483,7 @@ public final class MainActivity extends Activity {
         top.addView(code,new LinearLayout.LayoutParams(0,-2,1));
         TextView status=label(j.status,12,true,statusColor(j.status));
         status.setPadding(dp(7),dp(5),dp(7),dp(5));
+        status.setMaxWidth(dp(160));
         status.setBackground(shape(bg,0,8));top.addView(status);
         x.addView(top);space(x,6);
         x.addView(label(j.title,18,true,text));
@@ -391,8 +495,8 @@ public final class MainActivity extends Activity {
                     12,late,late?red:sub));
             space(x,6);
         }
-        LinearLayout sums=row();
-        sums.addView(label(Money.format(j.price),15,true,text),new LinearLayout.LayoutParams(0,-2,1));
+        LinearLayout sums=column();
+        sums.addView(label("Стоимость: "+Money.format(j.price),15,true,text));
         sums.addView(label("Долг: "+Money.format(Money.outstanding(j.price,j.paid)),12,false,sub));
         x.addView(sums);
         x.setOnClickListener(v->jobDetails(j.id));
@@ -587,6 +691,14 @@ public final class MainActivity extends Activity {
         edit.setContentDescription(label);
         edit.setTextColor(text);edit.setHintTextColor(sub);edit.setTextSize(16);
         edit.setInputType(inputType);
+        edit.setMinHeight(dp(48));
+        if((inputType & InputType.TYPE_TEXT_FLAG_MULTI_LINE)!=0) {
+            edit.setMinLines(2);edit.setMaxLines(6);edit.setGravity(Gravity.TOP|Gravity.START);
+        } else edit.setSingleLine(true);
+        edit.setOnFocusChangeListener((v,focused)->{
+            if(focused)v.post(()->{Rect rect=new Rect();v.getDrawingRect(rect);
+                v.requestRectangleOnScreen(rect,false);});
+        });
         edit.setPadding(dp(12),dp(11),dp(12),dp(11));edit.setBackground(shape(bg,stroke,10));
         holder.addView(edit,new LinearLayout.LayoutParams(-1,-2));space(holder,13);
         return edit;
@@ -609,10 +721,15 @@ public final class MainActivity extends Activity {
             try {action.run();d.dismiss();}
             catch(Exception e) { error(e); }
         }));
+        editorDialog=d;editorContent=content;
+        if(restoringDraft!=null)restoreFields(content,restoringDraft,"fields");
+        d.setOnDismissListener(it->{if(editorDialog==d){editorDialog=null;editorContent=null;editorType="";}});
         d.show();
+        prepareFormWindow(d,scroll);
     }
     private void clientEditor(CrmStore.Client existing) {
         CrmStore.Client c=existing==null?new CrmStore.Client():existing;
+        beginEditor("client",c.id);
         LinearLayout form=form();
         EditText name=field(form,"Имя / организация",c.name,InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_CAP_WORDS);
         EditText phone=field(form,"Телефон",c.phone,InputType.TYPE_CLASS_PHONE);
@@ -689,7 +806,7 @@ public final class MainActivity extends Activity {
             }
             @Override public void afterTextChanged(android.text.Editable e) {}
         });
-        d.show();load.run();
+        d.show();prepareFormWindow(d,scroll);load.run();
     }
 
     /** Picks a previously performed service without creating or changing any order. */
@@ -730,11 +847,13 @@ public final class MainActivity extends Activity {
             @Override public void afterTextChanged(android.text.Editable s){}
         });
         dialog.show();
+        prepareFormWindow(dialog,scroll);
         load.run();
     }
 
     private void jobEditor(CrmStore.Job existing,long preferredClientId) {
         CrmStore.Job job=existing==null?new CrmStore.Job():existing;
+        beginEditor("job",job.id);
         List<CrmStore.Client> clients=store.clients("",0);
         if(clients.isEmpty()){
             alertBuilder().setMessage("Сначала добавьте клиента")
@@ -743,10 +862,11 @@ public final class MainActivity extends Activity {
             return;
         }
         LinearLayout f=form();
-        long desired=job.id>0?job.clientId:preferredClientId;
+        long desired=restoringDraft!=null?restoringDraft.getLong("client"):
+                (job.id>0?job.clientId:preferredClientId);
         CrmStore.Client initial=desired>0?store.client(desired):clients.get(0);
         if(initial==null)initial=clients.get(0);
-        final long[] selectedClient={initial.id};
+        final long[] selectedClient={initial.id};editorClient=selectedClient;
         f.addView(label("Клиент",13,true,sub));
         TextView chosen=label(initial.name,16,true,text);
         f.addView(chosen);space(f,7);
@@ -898,6 +1018,7 @@ public final class MainActivity extends Activity {
         dialog.show();
     }
     private void paymentEditor(long id,boolean refund) {
+        beginEditor(refund?"refund":"payment",id);
         LinearLayout f=form();
         CrmStore.Job j=store.job(id);
         if(j==null){error(new IllegalArgumentException("Заказ не найден"));return;}
@@ -914,11 +1035,17 @@ public final class MainActivity extends Activity {
         });
     }
     private void expenseEditor(long preferredJob) {
+        beginEditor("expense",preferredJob);
         LinearLayout f=form();
         EditText category=field(f,"Категория","Материалы",InputType.TYPE_CLASS_TEXT);
         EditText amount=field(f,"Сумма, ₽","",InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
         EditText note=field(f,"Комментарий","",InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        List<CrmStore.Job> all=store.jobs("","",0);
+        List<CrmStore.Job> all=new ArrayList<>(store.jobs("","",0));
+        // A payment/expense action may originate beyond the first 100 orders.
+        if(preferredJob>0 && all.stream().noneMatch(j->j.id==preferredJob)) {
+            CrmStore.Job preferred=store.job(preferredJob);
+            if(preferred!=null)all.add(0,preferred);
+        }
         String[] names=new String[all.size()+1];names[0]="Общий расход (без заказа)";
         int selected=0;
         for(int i=0;i<all.size();i++) {
