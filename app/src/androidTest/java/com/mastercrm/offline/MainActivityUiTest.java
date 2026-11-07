@@ -97,7 +97,7 @@ public class MainActivityUiTest {
                 .perform(replaceText(title),androidx.test.espresso.action.ViewActions.pressImeActionButton());
         onView(org.hamcrest.Matchers.allOf(withText(title),
                 org.hamcrest.Matchers.not(androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom(
-                        android.widget.EditText.class)))))
+                        android.widget.EditText.class))))
                 .perform(scrollTo(),click());
         onView(withText("+ Расход по заказу")).perform(scrollTo(),click());
         onView(withContentDescription("Сумма, ₽"))
