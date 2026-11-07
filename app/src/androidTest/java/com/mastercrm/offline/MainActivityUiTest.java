@@ -73,6 +73,186 @@ public class MainActivityUiTest {
         }
     }
 
+    @Test public void expenseKeepsJobBeyondFirstPage() {
+        final long[] oldest={0};
+        final String title="Oldest expense linkage UI 1.6";
+        rule.getScenario().onActivity(activity->{
+            try(CrmStore db=new CrmStore(activity)) {
+                CrmStore.Client client=new CrmStore.Client();client.name="Expense pagination client";
+                long clientId=db.saveClient(client);
+                for(int i=0;i<102;i++) {
+                    CrmStore.Job job=new CrmStore.Job();job.clientId=clientId;
+                    job.title=i==0?title:"Expense pagination filler "+i;
+                    long id=db.saveJob(job);if(i==0)oldest[0]=id;
+                }
+                assertEquals(100,db.jobsForClient(clientId,0).size());
+                assertEquals(2,db.jobsForClient(clientId,1).size());
+                assertEquals(oldest[0],db.jobsForClient(clientId,1).get(1).id);
+            }
+        });
+        dismissLauncherAnr();
+        onView(withContentDescription("Раздел: Заказы")).perform(click());
+        onView(androidx.test.espresso.matcher.ViewMatchers.withHint(
+                "Номер, услуга, описание, клиент или телефон"))
+                .perform(replaceText(title),androidx.test.espresso.action.ViewActions.pressImeActionButton());
+        onView(org.hamcrest.Matchers.allOf(withText(title),
+                org.hamcrest.Matchers.not(androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom(
+                        android.widget.EditText.class))))
+                .perform(scrollTo(),click());
+        onView(withText("+ Расход по заказу")).perform(scrollTo(),click());
+        onView(withContentDescription("Сумма, ₽"))
+                .perform(scrollTo(),replaceText("1.23"),closeSoftKeyboard());
+        onView(withText("Сохранить")).perform(click());
+        rule.getScenario().onActivity(activity->{
+            try(CrmStore db=new CrmStore(activity)) {
+                assertEquals(oldest[0],db.expenses(1).get(0).jobId);
+                assertEquals(123,db.expenses(1).get(0).amount);
+            }
+        });
+    }
+
+    @Test public void focusedFieldRemainsAboveKeyboard() {
+        dismissLauncherAnr();
+        onView(withContentDescription("Раздел: Клиенты")).perform(click());
+        onView(withContentDescription("Создать запись")).perform(click());
+        onView(withContentDescription("Примечание")).perform(scrollTo(),click());
+        onView(withContentDescription("Примечание")).perform(new androidx.test.espresso.ViewAction() {
+            public org.hamcrest.Matcher<android.view.View> getConstraints() {
+                return androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom(android.widget.EditText.class);
+            }
+            public String getDescription(){return "Show IME and wait for reported visibility";}
+            public void perform(androidx.test.espresso.UiController ui,android.view.View view) {
+                view.requestFocus();
+                android.view.inputmethod.InputMethodManager ime=(android.view.inputmethod.InputMethodManager)
+                        view.getContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+                ime.showSoftInput(view,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+                for(int i=0;i<100;i++) {
+                    ui.loopMainThreadForAtLeast(100);
+                    androidx.core.view.WindowInsetsCompat insets=androidx.core.view.ViewCompat.getRootWindowInsets(view);
+                    if(insets!=null && insets.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime())) {
+                        ui.loopMainThreadForAtLeast(400);return;
+                    }
+                }
+            }
+        });
+        onView(withContentDescription("Примечание")).check((view,failure)->{
+            if(failure!=null)throw failure;
+            org.junit.Assert.assertTrue(view.hasFocus());
+            androidx.core.view.WindowInsetsCompat insets=androidx.core.view.ViewCompat.getRootWindowInsets(view);
+            org.junit.Assert.assertNotNull(insets);
+            org.junit.Assert.assertTrue("Test must exercise a visible keyboard",
+                    insets.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()));
+            android.graphics.Rect frame=new android.graphics.Rect();
+            view.getWindowVisibleDisplayFrame(frame);
+            int[] position=new int[2];view.getLocationOnScreen(position);
+            org.junit.Assert.assertTrue("Focused field must fit above the IME",
+                    position[1]+view.getHeight()<=frame.bottom);
+        });
+        onView(withContentDescription("Примечание")).perform(closeSoftKeyboard());
+        onView(withText("Отмена")).perform(click());
+    }
+
+    @Test public void orderAndPaymentDraftsSurviveRecreationWithoutFinancialWrites() {
+        String title="UI draft financial invariant 1.6";
+        final long[] id={0};
+        rule.getScenario().onActivity(activity->{
+            try(CrmStore db=new CrmStore(activity)) {
+                CrmStore.Client client=new CrmStore.Client();client.name="Draft invariant client";
+                CrmStore.Job job=new CrmStore.Job();job.clientId=db.saveClient(client);
+                job.title=title;job.price=200000;id[0]=db.saveJob(job);
+                db.addPayment(id[0],50000,"Initial synthetic payment");
+            }
+        });
+        dismissLauncherAnr();
+        onView(withContentDescription("Раздел: Заказы")).perform(click());
+        onView(withText(title)).perform(scrollTo(),click());
+        rule.getScenario().recreate();
+        onView(withText("Редактировать заказ")).perform(scrollTo(),click());
+        onView(withContentDescription("Стоимость, ₽"))
+                .perform(scrollTo(),replaceText("9999.99"),closeSoftKeyboard());
+        rule.getScenario().recreate();
+        onView(withContentDescription("Стоимость, ₽")).check(matches(withText("9999.99")));
+        onView(withText("Отмена")).perform(click());
+        onView(withText(title)).perform(scrollTo(),click());
+        onView(withText("+ Оплата")).perform(scrollTo(),click());
+        onView(withContentDescription("Сумма, ₽"))
+                .perform(replaceText("456.78"),closeSoftKeyboard());
+        rule.getScenario().recreate();
+        onView(withContentDescription("Сумма, ₽")).check(matches(withText("456.78")));
+        onView(withText("Отмена")).perform(click());
+        rule.getScenario().onActivity(activity->{
+            try(CrmStore db=new CrmStore(activity)) {
+                assertEquals(200000,db.job(id[0]).price);
+                assertEquals(50000,db.job(id[0]).paid);
+            }
+        });
+    }
+
+    @Test public void clientDraftSurvivesLandscapeAndPortrait() {
+        dismissLauncherAnr();
+        onView(withContentDescription("Раздел: Клиенты")).perform(click());
+        onView(withContentDescription("Создать запись")).perform(click());
+        onView(withContentDescription("Имя / организация"))
+                .perform(replaceText("Черновик поворота"),closeSoftKeyboard());
+        rule.getScenario().onActivity(activity->activity.setRequestedOrientation(
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE));
+        SystemClock.sleep(1000);
+        onView(withContentDescription("Имя / организация"))
+                .check(matches(withText("Черновик поворота")));
+        onView(withText("Сохранить")).check(matches(isDisplayed()));
+        rule.getScenario().onActivity(activity->activity.setRequestedOrientation(
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT));
+        SystemClock.sleep(1000);
+        onView(withContentDescription("Имя / организация"))
+                .check(matches(withText("Черновик поворота")));
+        onView(withText("Отмена")).perform(click());
+    }
+
+    @Test public void clientDraftSurvivesRecreationWithoutSaving() {
+        dismissLauncherAnr();
+        onView(withContentDescription("Раздел: Клиенты")).perform(click());
+        onView(withContentDescription("Создать запись")).perform(click());
+        onView(withContentDescription("Имя / организация"))
+                .perform(replaceText("Несохранённый черновик 1.6"),closeSoftKeyboard());
+        onView(withContentDescription("Примечание"))
+                .perform(scrollTo(),replaceText("Длинный текст\nВторая строка"),closeSoftKeyboard());
+        rule.getScenario().recreate();
+        onView(withContentDescription("Имя / организация"))
+                .check(matches(withText("Несохранённый черновик 1.6")));
+        onView(withContentDescription("Примечание"))
+                .check(matches(withText("Длинный текст\nВторая строка")));
+        onView(withText("Отмена")).perform(click());
+        rule.getScenario().onActivity(activity->{
+            try(CrmStore db=new CrmStore(activity)) {
+                assertEquals(0,db.clients("Несохранённый черновик 1.6",0).size());
+            }
+        });
+    }
+
+    @Test public void expenseDraftSurvivesRecreationWithoutChangingMoney() {
+        dismissLauncherAnr();
+        onView(withContentDescription("Раздел: Финансы")).perform(click());
+        onView(withContentDescription("Создать запись")).perform(click());
+        onView(withContentDescription("Сумма, ₽"))
+                .perform(scrollTo(),replaceText("1234.56"),closeSoftKeyboard());
+        onView(withContentDescription("Комментарий"))
+                .perform(scrollTo(),replaceText("Черновик расхода"),closeSoftKeyboard());
+        rule.getScenario().recreate();
+        onView(withContentDescription("Сумма, ₽")).check(matches(withText("1234.56")));
+        onView(withContentDescription("Комментарий")).check(matches(withText("Черновик расхода")));
+        onView(withText("Отмена")).perform(click());
+    }
+
+    @Test public void searchAndTabSurviveRecreation() {
+        dismissLauncherAnr();
+        onView(withContentDescription("Раздел: Клиенты")).perform(click());
+        onView(androidx.test.espresso.matcher.ViewMatchers.withHint("Имя или телефон клиента"))
+                .perform(replaceText("Поиск 1.6"),closeSoftKeyboard());
+        rule.getScenario().recreate();
+        onView(androidx.test.espresso.matcher.ViewMatchers.withHint("Имя или телефон клиента"))
+                .check(matches(withText("Поиск 1.6")));
+    }
+
     @Test public void reusesHistoricalServiceOnlyAfterExplicitSelection() {
         final String uniqueTitle="Услуга из истории UI 1.1";
         rule.getScenario().onActivity(activity->{

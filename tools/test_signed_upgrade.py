@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end update 0.5 -> current signed release on a disposable Android emulator.
+"""End-to-end update a released version -> current signed release on a disposable Android emulator.
 
 Creates an entirely synthetic client in the OLD installed signed APK, installs
 the NEW signed APK *without uninstalling*, and checks the client survives.
@@ -133,8 +133,10 @@ def main():
             raise RuntimeError(f"Signed APK is missing or too small: {path}")
 
     wait_for_device()
-    print("Installing baseline signed MasterCRM 0.5 ...")
-    assert "Success" in adb("install", str(old), timeout=120)
+    if adb("shell", "getprop", "ro.kernel.qemu").strip() != "1":
+        raise RuntimeError("Synthetic upgrade test is restricted to a disposable emulator")
+    print("Installing baseline signed MasterCRM ...")
+    assert "Success" in adb("install", "-r", str(old), timeout=120)
     start_app()
     show_clients()
     tap(await_node("content-desc", "Создать запись"))
