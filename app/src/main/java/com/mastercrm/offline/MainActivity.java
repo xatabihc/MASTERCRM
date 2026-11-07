@@ -166,6 +166,7 @@ public final class MainActivity extends Activity {
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         if(state!=null) {
             photoJobId=state.getLong("photoJobId",0);
+            pdfJobId=state.getLong("pdfJobId",0);
             pendingCameraPath=state.getString("pendingCameraPath","");
         }
         dark = getPreferences(MODE_PRIVATE).getBoolean("dark", false);
@@ -197,6 +198,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onSaveInstanceState(Bundle out) {
         out.putLong("photoJobId",photoJobId);
+        out.putLong("pdfJobId",pdfJobId);
         out.putString("pendingCameraPath",pendingCameraPath);
         out.putInt("tab",tab);out.putInt("page",page);
         out.putString("search",searchInput==null?search:searchInput.getText().toString());

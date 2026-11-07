@@ -80,6 +80,45 @@ public class MainActivityUiTest {
         }
     }
 
+    @Test public void pdfExportCompletesAfterActivityRecreation() throws Exception {
+        final String title="PDF rotation invariant 1.6";
+        final long[] jobId={0};
+        rule.getScenario().onActivity(activity->{
+            try(CrmStore db=new CrmStore(activity)) {
+                CrmStore.Client client=new CrmStore.Client();client.name="PDF rotation client";
+                CrmStore.Job job=new CrmStore.Job();job.clientId=db.saveClient(client);
+                job.title=title;job.price=76500;jobId[0]=db.saveJob(job);
+            }
+        });
+        android.app.Instrumentation instrumentation=InstrumentationRegistry.getInstrumentation();
+        android.content.IntentFilter filter=new android.content.IntentFilter(android.content.Intent.ACTION_CREATE_DOCUMENT);
+        filter.addCategory(android.content.Intent.CATEGORY_OPENABLE);filter.addDataType("application/pdf");
+        android.app.Instrumentation.ActivityMonitor chooser=instrumentation.addMonitor(filter,null,true);
+        try {
+            dismissLauncherAnr();
+            onView(withContentDescription("Раздел: Заказы")).perform(click());
+            onView(withText(title)).perform(scrollTo(),click());
+            onView(withText("Заказ-наряд PDF")).inRoot(isDialog()).perform(scrollTo(),click());
+            assertEquals(1,chooser.getHits());
+            // Simulate Android recreating the app while its document picker owns the UI.
+            rule.getScenario().recreate();
+            rule.getScenario().onActivity(activity->{
+                java.io.File output=new java.io.File(activity.getCacheDir(),"rotation-"+System.nanoTime()+".pdf");
+                activity.onActivityResult(23,android.app.Activity.RESULT_OK,
+                        new android.content.Intent().setData(android.net.Uri.fromFile(output)));
+                org.junit.Assert.assertTrue("PDF must be generated for the original selected order",output.length()>1000);
+                try(android.graphics.pdf.PdfRenderer pdf=new android.graphics.pdf.PdfRenderer(
+                        android.os.ParcelFileDescriptor.open(output,android.os.ParcelFileDescriptor.MODE_READ_ONLY))) {
+                    assertEquals(1,pdf.getPageCount());
+                } catch(java.io.IOException ex) {throw new AssertionError(ex);}
+                try(CrmStore db=new CrmStore(activity)) {
+                    assertEquals(76500,db.job(jobId[0]).price);
+                    assertEquals(0,db.job(jobId[0]).paid);
+                }
+            });
+        } finally {instrumentation.removeMonitor(chooser);}
+    }
+
     @Test public void darkFormSelectedValueAndPopupHaveReadableContrast() {
         dismissLauncherAnr();
         onView(withContentDescription("Раздел: Ещё")).perform(click());
