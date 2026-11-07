@@ -375,7 +375,10 @@ public final class MainActivity extends Activity {
         }
     }
     private void periodSelector(LinearLayout target) {
-        LinearLayout options=row();
+        LinearLayout options=column();
+        boolean twoRows=getResources().getConfiguration().fontScale>1.15f
+                || getResources().getConfiguration().screenWidthDp<360;
+        LinearLayout buttons=row();options.addView(buttons);
         String[] keys={"day","week","month","all"};
         String[] labels={"День","Неделя","Месяц","Всё"};
         for(int i=0;i<keys.length;i++) {
@@ -387,8 +390,11 @@ public final class MainActivity extends Activity {
             });
             b.setContentDescription("Финансовый период: "+labels[i]);
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);
-            if(i>0)p.setMargins(dp(4),0,0,0);
-            options.addView(b,p);
+            if(twoRows && i==2) {
+                space(options,6);buttons=row();options.addView(buttons);
+            }
+            if((twoRows?i%2:i)>0)p.setMargins(dp(4),0,0,0);
+            buttons.addView(b,p);
         }
         target.addView(options);
         space(target,12);
