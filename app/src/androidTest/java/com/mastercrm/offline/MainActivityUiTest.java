@@ -33,6 +33,25 @@ public class MainActivityUiTest {
     @Rule public ActivityScenarioRule<MainActivity> rule =
             new ActivityScenarioRule<>(MainActivity.class);
 
+    @org.junit.Before public void awaitForegroundActivity() {
+        // Headless launchers can relaunch after font/configuration changes.
+        // Establish the same foreground precondition as tapping the app icon.
+        rule.getScenario().onActivity(activity->activity.startActivity(
+                new android.content.Intent(activity,MainActivity.class).addFlags(
+                        android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                                | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)));
+        int stable=0;
+        for(int i=0;i<150;i++) {
+            final boolean[] focused={false};
+            rule.getScenario().onActivity(activity->focused[0]=activity.hasWindowFocus());
+            if(focused[0])stable++;else stable=0;
+            if(stable>=5)return;
+            dismissLauncherAnr();
+            SystemClock.sleep(100);
+        }
+        org.junit.Assert.fail("MasterCRM must own a stable foreground window before UI interaction");
+    }
+
     // Recreated modal windows can take focus before the Activity root. Select
     // their actual root instead of waiting for the background Activity to focus.
     private androidx.test.espresso.ViewInteraction dialogField(String description) {
