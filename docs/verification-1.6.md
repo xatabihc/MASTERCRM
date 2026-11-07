@@ -41,3 +41,9 @@ The first post-merge API 35 run exposed an Espresso root-selection race after Ac
 3. On an authorized connected device inspect installed package/version/certificate. Never downgrade, replace a mismatched signature, or remove the app.
 4. Install only the signed release using `adb -s SERIAL install -r /path/app-release.apk`. Debug APKs and synthetic instrumentation must not be installed on a user's application.
 5. Record release run URLs, artifact URL and device installation result here. Extensive real-photo databases and exhaustive real-device accessibility/rotation checks remain separate verification work.
+
+## Physical-device follow-up
+
+On Samsung A07 / API 36, signed installation with `adb install -r` and Activity launch succeeded. After owner unlock, overview/system bars and client/expense fields above a visible IME were checked visually. Both drafts were explicitly cancelled; client/order/expense counts and money on overview remained zero.
+
+The dark expense form exposed black spinner text inherited from the Activity's light base theme. Spinners and their adapters now use the selected Material theme context, with a matching popup surface. A regression checks at least 4.5:1 text contrast for the selected value and popup item. This production fix requires a fresh signed build and preservation checks before final verification. Latest evidence is recorded in the follow-up PR description.

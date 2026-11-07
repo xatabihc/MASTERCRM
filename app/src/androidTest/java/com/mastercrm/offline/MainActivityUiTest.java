@@ -80,6 +80,33 @@ public class MainActivityUiTest {
         }
     }
 
+    @Test public void darkFormSelectedValueAndPopupHaveReadableContrast() {
+        dismissLauncherAnr();
+        onView(withContentDescription("Раздел: Ещё")).perform(click());
+        onView(withText("Тёмная тема")).perform(click());
+        onView(withContentDescription("Раздел: Финансы")).perform(click());
+        onView(withContentDescription("Создать запись")).perform(click());
+        onView(androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom(android.widget.Spinner.class))
+                .inRoot(isDialog()).check((view,failure)->{
+                    if(failure!=null)throw failure;
+                    android.widget.Spinner spinner=(android.widget.Spinner)view;
+                    android.widget.TextView selected=(android.widget.TextView)spinner.getSelectedView();
+                    org.junit.Assert.assertNotNull(selected);
+                    // Check against both the dialog surface and our popup panel.
+                    int surface=android.graphics.Color.parseColor("#424242");
+                    int panel=android.graphics.Color.parseColor("#1F2937");
+                    org.junit.Assert.assertTrue("Selected text must reach 4.5:1 contrast",
+                            androidx.core.graphics.ColorUtils.calculateContrast(selected.getCurrentTextColor(),surface)>=4.5);
+                    android.widget.TextView popup=(android.widget.TextView)spinner.getAdapter()
+                            .getDropDownView(0,null,new android.widget.FrameLayout(view.getContext()));
+                    org.junit.Assert.assertTrue("Popup text must reach 4.5:1 contrast",
+                            androidx.core.graphics.ColorUtils.calculateContrast(popup.getCurrentTextColor(),panel)>=4.5);
+                });
+        onView(withText("Отмена")).inRoot(isDialog()).perform(click());
+        onView(withContentDescription("Раздел: Ещё")).perform(click());
+        onView(withText("Светлая тема")).perform(click());
+    }
+
     @Test public void expenseKeepsJobBeyondFirstPage() {
         final long[] oldest={0};
         final String title="Oldest expense linkage UI 1.6";

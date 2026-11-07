@@ -726,8 +726,13 @@ public final class MainActivity extends Activity {
         c.addView(button("Сбросить поиск",false,()->{search="";filter="";page=0;render();}));
     }
     private Spinner spinner(String[] values) {
-        Spinner s=new Spinner(this);
-        ArrayAdapter<String> a=new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,values);
+        // Activity uses a light base theme; modal controls must follow the
+        // selected palette too, including their text, arrow and popup rows.
+        android.content.Context themed=new android.view.ContextThemeWrapper(this,dark
+                ? android.R.style.Theme_Material : android.R.style.Theme_Material_Light);
+        Spinner s=new Spinner(themed);
+        ArrayAdapter<String> a=new ArrayAdapter<>(themed,android.R.layout.simple_spinner_dropdown_item,values);
+        s.setPopupBackgroundDrawable(shape(panel,stroke,10));
         s.setAdapter(a);s.setMinimumHeight(dp(48));return s;
     }
     private EditText field(LinearLayout holder,String label,String value,int inputType) {
