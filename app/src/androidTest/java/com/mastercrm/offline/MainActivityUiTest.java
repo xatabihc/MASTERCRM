@@ -15,6 +15,7 @@ import org.junit.runner.RunWith;
 import java.util.List;
 
 import static androidx.test.espresso.Espresso.onView;
+import static androidx.test.espresso.matcher.RootMatchers.isDialog;
 import static androidx.test.espresso.action.ViewActions.click;
 import static androidx.test.espresso.action.ViewActions.closeSoftKeyboard;
 import static androidx.test.espresso.action.ViewActions.replaceText;
@@ -31,6 +32,12 @@ import static org.junit.Assert.assertFalse;
 public class MainActivityUiTest {
     @Rule public ActivityScenarioRule<MainActivity> rule =
             new ActivityScenarioRule<>(MainActivity.class);
+
+    // Recreated modal windows can take focus before the Activity root. Select
+    // their actual root instead of waiting for the background Activity to focus.
+    private androidx.test.espresso.ViewInteraction dialogField(String description) {
+        return onView(withContentDescription(description)).inRoot(isDialog());
+    }
 
     /**
      * Headless GitHub Android emulators occasionally show a system dialog
@@ -100,9 +107,9 @@ public class MainActivityUiTest {
                         android.widget.EditText.class))))
                 .perform(scrollTo(),click());
         onView(withText("+ Расход по заказу")).perform(scrollTo(),click());
-        onView(withContentDescription("Сумма, ₽"))
+        dialogField("Сумма, ₽")
                 .perform(scrollTo(),replaceText("1.23"),closeSoftKeyboard());
-        onView(withText("Сохранить")).perform(click());
+        onView(withText("Сохранить")).inRoot(isDialog()).perform(click());
         rule.getScenario().onActivity(activity->{
             try(CrmStore db=new CrmStore(activity)) {
                 assertEquals(oldest[0],db.expenses(1).get(0).jobId);
@@ -115,8 +122,8 @@ public class MainActivityUiTest {
         dismissLauncherAnr();
         onView(withContentDescription("Раздел: Клиенты")).perform(click());
         onView(withContentDescription("Создать запись")).perform(click());
-        onView(withContentDescription("Примечание")).perform(scrollTo(),click());
-        onView(withContentDescription("Примечание")).perform(new androidx.test.espresso.ViewAction() {
+        dialogField("Примечание").perform(scrollTo(),click());
+        dialogField("Примечание").perform(new androidx.test.espresso.ViewAction() {
             public org.hamcrest.Matcher<android.view.View> getConstraints() {
                 return androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom(android.widget.EditText.class);
             }
@@ -135,7 +142,7 @@ public class MainActivityUiTest {
                 }
             }
         });
-        onView(withContentDescription("Примечание")).check((view,failure)->{
+        dialogField("Примечание").check((view,failure)->{
             if(failure!=null)throw failure;
             org.junit.Assert.assertTrue(view.hasFocus());
             androidx.core.view.WindowInsetsCompat insets=androidx.core.view.ViewCompat.getRootWindowInsets(view);
@@ -148,8 +155,8 @@ public class MainActivityUiTest {
             org.junit.Assert.assertTrue("Focused field must fit above the IME",
                     position[1]+view.getHeight()<=frame.bottom);
         });
-        onView(withContentDescription("Примечание")).perform(closeSoftKeyboard());
-        onView(withText("Отмена")).perform(click());
+        dialogField("Примечание").perform(closeSoftKeyboard());
+        onView(withText("Отмена")).inRoot(isDialog()).perform(click());
     }
 
     @Test public void orderAndPaymentDraftsSurviveRecreationWithoutFinancialWrites() {
@@ -167,19 +174,19 @@ public class MainActivityUiTest {
         onView(withContentDescription("Раздел: Заказы")).perform(click());
         onView(withText(title)).perform(scrollTo(),click());
         rule.getScenario().recreate();
-        onView(withText("Редактировать заказ")).perform(scrollTo(),click());
-        onView(withContentDescription("Стоимость, ₽"))
+        onView(withText("Редактировать заказ")).inRoot(isDialog()).perform(scrollTo(),click());
+        dialogField("Стоимость, ₽")
                 .perform(scrollTo(),replaceText("9999.99"),closeSoftKeyboard());
         rule.getScenario().recreate();
-        onView(withContentDescription("Стоимость, ₽")).check(matches(withText("9999.99")));
-        onView(withText("Отмена")).perform(click());
+        dialogField("Стоимость, ₽").check(matches(withText("9999.99")));
+        onView(withText("Отмена")).inRoot(isDialog()).perform(click());
         onView(withText(title)).perform(scrollTo(),click());
         onView(withText("+ Оплата")).perform(scrollTo(),click());
-        onView(withContentDescription("Сумма, ₽"))
+        dialogField("Сумма, ₽")
                 .perform(replaceText("456.78"),closeSoftKeyboard());
         rule.getScenario().recreate();
-        onView(withContentDescription("Сумма, ₽")).check(matches(withText("456.78")));
-        onView(withText("Отмена")).perform(click());
+        dialogField("Сумма, ₽").check(matches(withText("456.78")));
+        onView(withText("Отмена")).inRoot(isDialog()).perform(click());
         rule.getScenario().onActivity(activity->{
             try(CrmStore db=new CrmStore(activity)) {
                 assertEquals(200000,db.job(id[0]).price);
@@ -192,36 +199,36 @@ public class MainActivityUiTest {
         dismissLauncherAnr();
         onView(withContentDescription("Раздел: Клиенты")).perform(click());
         onView(withContentDescription("Создать запись")).perform(click());
-        onView(withContentDescription("Имя / организация"))
+        dialogField("Имя / организация")
                 .perform(replaceText("Черновик поворота"),closeSoftKeyboard());
         rule.getScenario().onActivity(activity->activity.setRequestedOrientation(
                 android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE));
         SystemClock.sleep(1000);
-        onView(withContentDescription("Имя / организация"))
+        dialogField("Имя / организация")
                 .check(matches(withText("Черновик поворота")));
-        onView(withText("Сохранить")).check(matches(isDisplayed()));
+        onView(withText("Сохранить")).inRoot(isDialog()).check(matches(isDisplayed()));
         rule.getScenario().onActivity(activity->activity.setRequestedOrientation(
                 android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT));
         SystemClock.sleep(1000);
-        onView(withContentDescription("Имя / организация"))
+        dialogField("Имя / организация")
                 .check(matches(withText("Черновик поворота")));
-        onView(withText("Отмена")).perform(click());
+        onView(withText("Отмена")).inRoot(isDialog()).perform(click());
     }
 
     @Test public void clientDraftSurvivesRecreationWithoutSaving() {
         dismissLauncherAnr();
         onView(withContentDescription("Раздел: Клиенты")).perform(click());
         onView(withContentDescription("Создать запись")).perform(click());
-        onView(withContentDescription("Имя / организация"))
+        dialogField("Имя / организация")
                 .perform(replaceText("Несохранённый черновик 1.6"),closeSoftKeyboard());
-        onView(withContentDescription("Примечание"))
+        dialogField("Примечание")
                 .perform(scrollTo(),replaceText("Длинный текст\nВторая строка"),closeSoftKeyboard());
         rule.getScenario().recreate();
-        onView(withContentDescription("Имя / организация"))
+        dialogField("Имя / организация")
                 .check(matches(withText("Несохранённый черновик 1.6")));
-        onView(withContentDescription("Примечание"))
+        dialogField("Примечание")
                 .check(matches(withText("Длинный текст\nВторая строка")));
-        onView(withText("Отмена")).perform(click());
+        onView(withText("Отмена")).inRoot(isDialog()).perform(click());
         rule.getScenario().onActivity(activity->{
             try(CrmStore db=new CrmStore(activity)) {
                 assertEquals(0,db.clients("Несохранённый черновик 1.6",0).size());
@@ -233,14 +240,16 @@ public class MainActivityUiTest {
         dismissLauncherAnr();
         onView(withContentDescription("Раздел: Финансы")).perform(click());
         onView(withContentDescription("Создать запись")).perform(click());
-        onView(withContentDescription("Сумма, ₽"))
+        dialogField("Сумма, ₽")
                 .perform(scrollTo(),replaceText("1234.56"),closeSoftKeyboard());
-        onView(withContentDescription("Комментарий"))
+        dialogField("Комментарий")
                 .perform(scrollTo(),replaceText("Черновик расхода"),closeSoftKeyboard());
-        rule.getScenario().recreate();
-        onView(withContentDescription("Сумма, ₽")).check(matches(withText("1234.56")));
-        onView(withContentDescription("Комментарий")).check(matches(withText("Черновик расхода")));
-        onView(withText("Отмена")).perform(click());
+        for(int i=0;i<3;i++) {
+            rule.getScenario().recreate();
+            dialogField("Сумма, ₽").check(matches(withText("1234.56")));
+        }
+        dialogField("Комментарий").check(matches(withText("Черновик расхода")));
+        onView(withText("Отмена")).inRoot(isDialog()).perform(click());
     }
 
     @Test public void searchAndTabSurviveRecreation() {
@@ -274,17 +283,17 @@ public class MainActivityUiTest {
         withLauncherRecovery(()->onView(withContentDescription("Создать запись")).perform(click()));
         withLauncherRecovery(()->onView(withText("Подставить услугу из прошлых заказов"))
                 .perform(scrollTo(),click()));
-        withLauncherRecovery(()->onView(withContentDescription("Найти услугу"))
+        withLauncherRecovery(()->dialogField("Найти услугу")
                 .perform(replaceText(uniqueTitle),closeSoftKeyboard()));
         withLauncherRecovery(()->onView(withText(uniqueTitle+" · "+Money.format(215000)+" · заказов: 1"))
                 .perform(scrollTo(),click()));
-        withLauncherRecovery(()->onView(withContentDescription("Работа / услуга"))
+        withLauncherRecovery(()->dialogField("Работа / услуга")
                 .check(matches(withText(uniqueTitle))));
-        withLauncherRecovery(()->onView(withContentDescription("Описание, материалы и заметки"))
+        withLauncherRecovery(()->dialogField("Описание, материалы и заметки")
                 .check(matches(withText("Проверка шаблона из прошлого заказа"))));
-        withLauncherRecovery(()->onView(withContentDescription("Стоимость, ₽"))
+        withLauncherRecovery(()->dialogField("Стоимость, ₽")
                 .check(matches(withText("2150.00"))));
-        withLauncherRecovery(()->onView(withText("Отмена")).perform(click()));
+        withLauncherRecovery(()->onView(withText("Отмена")).inRoot(isDialog()).perform(click()));
         rule.getScenario().onActivity(activity->{
             CrmStore db=new CrmStore(activity);
             try {
@@ -324,11 +333,11 @@ public class MainActivityUiTest {
                     .perform(click()));
             stage=3; withLauncherRecovery(()->onView(withContentDescription("Создать запись"))
                     .perform(click()));
-            stage=4; withLauncherRecovery(()->onView(withContentDescription("Имя / организация"))
+            stage=4; withLauncherRecovery(()->dialogField("Имя / организация")
                     .perform(replaceText("UI автотест клиента"),closeSoftKeyboard()));
-            stage=5; withLauncherRecovery(()->onView(withContentDescription("Телефон"))
+            stage=5; withLauncherRecovery(()->dialogField("Телефон")
                     .perform(replaceText("+79001112233"),closeSoftKeyboard()));
-            stage=6; withLauncherRecovery(()->onView(withText("Сохранить"))
+            stage=6; withLauncherRecovery(()->onView(withText("Сохранить")).inRoot(isDialog())
                     .perform(click()));
             stage=7; withLauncherRecovery(()->onView(withText("UI автотест клиента"))
                     .check(matches(isDisplayed())));
@@ -337,11 +346,11 @@ public class MainActivityUiTest {
                     .perform(click()));
             stage=9; withLauncherRecovery(()->onView(withContentDescription("Создать запись"))
                     .perform(click()));
-            stage=10; withLauncherRecovery(()->onView(withContentDescription("Работа / услуга"))
+            stage=10; withLauncherRecovery(()->dialogField("Работа / услуга")
                     .perform(replaceText("Диагностика UI"),closeSoftKeyboard()));
-            stage=11; withLauncherRecovery(()->onView(withContentDescription("Стоимость, ₽"))
+            stage=11; withLauncherRecovery(()->dialogField("Стоимость, ₽")
                     .perform(scrollTo(),replaceText("1250"),closeSoftKeyboard()));
-            stage=12; withLauncherRecovery(()->onView(withText("Сохранить"))
+            stage=12; withLauncherRecovery(()->onView(withText("Сохранить")).inRoot(isDialog())
                     .perform(click()));
             stage=13; rule.getScenario().onActivity(activity -> {
                 CrmStore data=new CrmStore(activity);
@@ -351,7 +360,7 @@ public class MainActivityUiTest {
                 } finally { data.close(); }
             });
 
-            stage=14; withLauncherRecovery(()->onView(withText("Закрыть"))
+            stage=14; withLauncherRecovery(()->onView(withText("Закрыть")).inRoot(isDialog())
                     .perform(click()));
             stage=15; withLauncherRecovery(()->onView(withContentDescription("Раздел: Ещё"))
                     .perform(click()));
