@@ -110,6 +110,7 @@ public class MainActivityUiTest {
         dismissLauncherAnr();
         onView(withContentDescription("Раздел: Заказы")).perform(click());
         onView(withText(title)).perform(scrollTo(),click());
+        rule.getScenario().recreate();
         onView(withText("Редактировать заказ")).perform(scrollTo(),click());
         onView(withContentDescription("Стоимость, ₽"))
                 .perform(scrollTo(),replaceText("9999.99"),closeSoftKeyboard());

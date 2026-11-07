@@ -76,6 +76,9 @@ public final class MainActivity extends Activity {
     private String pendingCameraPath="";
     private LinearLayout body;
     private AlertDialog activeJobDialog;
+    private long detailJobId, detailClientId;
+    private AlertDialog clientDialog;
+    private ScrollView jobDetailScroll, clientDetailScroll;
     private AlertDialog editorDialog;
     private LinearLayout editorContent;
     private String editorType = "";
@@ -90,7 +93,10 @@ public final class MainActivity extends Activity {
     }
     private void saveFields(View view, Bundle values, String path) {
         if(view instanceof EditText) {
-            values.putString(path,((EditText)view).getText().toString());
+            EditText edit=(EditText)view;
+            values.putString(path,edit.getText().toString());
+            values.putInt(path+"/start",edit.getSelectionStart());
+            values.putInt(path+"/end",edit.getSelectionEnd());
             if(view.hasFocus())values.putString("focus",path);
         }
         else if(view instanceof Spinner) values.putInt(path,((Spinner)view).getSelectedItemPosition());
@@ -101,7 +107,11 @@ public final class MainActivity extends Activity {
     }
     private void restoreFields(View view, Bundle values, String path) {
         if(view instanceof EditText && values.containsKey(path)) {
-            ((EditText)view).setText(values.getString(path));
+            EditText edit=(EditText)view;
+            edit.setText(values.getString(path));
+            int length=edit.length();
+            edit.setSelection(Math.max(0,Math.min(length,values.getInt(path+"/start"))),
+                    Math.max(0,Math.min(length,values.getInt(path+"/end"))));
             if(path.equals(values.getString("focus")))view.requestFocus();
         }
         else if(view instanceof Spinner && values.containsKey(path))((Spinner)view).setSelection(values.getInt(path));
@@ -143,7 +153,7 @@ public final class MainActivity extends Activity {
 
     private void closeJobDialog() {
         AlertDialog dialog=activeJobDialog;
-        activeJobDialog=null;
+        activeJobDialog=null;detailJobId=0;
         if(dialog!=null&&dialog.isShowing())dialog.dismiss();
     }
 
@@ -170,7 +180,18 @@ public final class MainActivity extends Activity {
         render();
         if(state!=null) {
             screenScroll.post(()->screenScroll.scrollTo(0,state.getInt("scroll")));
-            restoreEditor(state.getBundle("draft"));
+            if(state.getBundle("draft")!=null)restoreEditor(state.getBundle("draft"));
+            else {
+                long clientId=state.getLong("detailClient"),jobId=state.getLong("detailJob");
+                if(clientId>0 && store.client(clientId)!=null) {
+                    clientDetails(clientId);
+                    clientDetailScroll.post(()->clientDetailScroll.scrollTo(0,state.getInt("clientScroll")));
+                }
+                if(jobId>0 && store.job(jobId)!=null) {
+                    jobDetails(jobId);
+                    jobDetailScroll.post(()->jobDetailScroll.scrollTo(0,state.getInt("jobScroll")));
+                }
+            }
         }
     }
     @Override protected void onSaveInstanceState(Bundle out) {
@@ -181,6 +202,9 @@ public final class MainActivity extends Activity {
         out.putString("filter",filter);out.putInt("dueMode",dueMode);
         out.putBoolean("unpaidOnly",unpaidOnly);
         out.putInt("scroll",screenScroll==null?0:screenScroll.getScrollY());
+        out.putLong("detailClient",detailClientId);out.putLong("detailJob",detailJobId);
+        out.putInt("clientScroll",clientDetailScroll==null?0:clientDetailScroll.getScrollY());
+        out.putInt("jobScroll",jobDetailScroll==null?0:jobDetailScroll.getScrollY());
         if(editorDialog!=null && editorDialog.isShowing() && !editorType.isEmpty()) {
             Bundle draft=new Bundle();draft.putString("type",editorType);draft.putLong("id",editorId);
             if(editorClient!=null)draft.putLong("client",editorClient[0]);
@@ -188,7 +212,13 @@ public final class MainActivity extends Activity {
         }
         super.onSaveInstanceState(out);
     }
-    @Override public void onDestroy() { if (store != null) store.close(); super.onDestroy(); }
+    @Override public void onDestroy() {
+        closeJobDialog();
+        if(clientDialog!=null)clientDialog.dismiss();
+        if(editorDialog!=null)editorDialog.dismiss();
+        if(store!=null)store.close();
+        super.onDestroy();
+    }
     private int dp(float d) { return (int)(getResources().getDisplayMetrics().density * d + .5f); }
     private void palette() {
         bg = Color.parseColor(dark ? "#111827" : "#F5F7FB");
@@ -276,6 +306,12 @@ public final class MainActivity extends Activity {
                     WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout()
                             | WindowInsetsCompat.Type.ime());
             view.setPadding(safe.left,safe.top,safe.right,safe.bottom);
+            // Give the focused search field the available height in landscape.
+            if(base.getChildCount()==3) {
+                int visibility=insets.isVisible(WindowInsetsCompat.Type.ime())?View.GONE:View.VISIBLE;
+                base.getChildAt(0).setVisibility(visibility);
+                base.getChildAt(2).setVisibility(visibility);
+            }
             return insets;
         });
         searchInput=null;
@@ -725,6 +761,7 @@ public final class MainActivity extends Activity {
         if(restoringDraft!=null)restoreFields(content,restoringDraft,"fields");
         d.setOnDismissListener(it->{if(editorDialog==d){editorDialog=null;editorContent=null;editorType="";}});
         d.show();
+        d.setCanceledOnTouchOutside(false);
         prepareFormWindow(d,scroll);
     }
     private void clientEditor(CrmStore.Client existing) {
@@ -764,9 +801,9 @@ public final class MainActivity extends Activity {
         line(d,"Получено от клиента",Money.format(stats.paid));
         line(d,"Текущий долг",Money.format(stats.debt));
         space(d,9);
-        d.addView(button("Изменить",false,()->clientEditor(c)));
+        d.addView(button("Изменить",false,()->{clientDialog.dismiss();clientEditor(c);}));
         space(d,9);
-        d.addView(button("+ Заказ для этого клиента",true,()->jobEditor(null,c.id)));
+        d.addView(button("+ Заказ для этого клиента",true,()->{clientDialog.dismiss();jobEditor(null,c.id);}));
         space(d,16);
         d.addView(label("Заказы клиента",17,true,text));space(d,8);
         List<CrmStore.Job> clientJobs=store.jobsForClient(c.id);
@@ -775,8 +812,14 @@ public final class MainActivity extends Activity {
             d.addView(jobRow(j));space(d,12);
         }
         ScrollView scroll=new ScrollView(this);scroll.addView(d);
-        alertBuilder().setTitle("Карточка клиента")
-                .setView(scroll).setPositiveButton("Закрыть",null).show();
+        if(clientDialog!=null)clientDialog.dismiss();
+        AlertDialog details=alertBuilder().setTitle("Карточка клиента")
+                .setView(scroll).setPositiveButton("Закрыть",null).create();
+        clientDialog=details;detailClientId=id;clientDetailScroll=scroll;
+        details.setOnDismissListener(ignored->{
+            if(clientDialog==details){clientDialog=null;detailClientId=0;}
+        });
+        details.show();
     }
     /** Search all clients, not merely the first page; no cloud or permissions. */
     private void clientPicker(long[] selected,TextView chosen) {
@@ -1011,9 +1054,9 @@ public final class MainActivity extends Activity {
         ScrollView scroll=new ScrollView(this);scroll.addView(d);
         AlertDialog dialog=alertBuilder().setTitle(j.number).setView(scroll)
                 .setPositiveButton("Закрыть",null).create();
-        activeJobDialog=dialog;
+        activeJobDialog=dialog;detailJobId=id;jobDetailScroll=scroll;
         dialog.setOnDismissListener(ignored->{
-            if(activeJobDialog==dialog)activeJobDialog=null;
+            if(activeJobDialog==dialog){activeJobDialog=null;detailJobId=0;}
         });
         dialog.show();
     }
