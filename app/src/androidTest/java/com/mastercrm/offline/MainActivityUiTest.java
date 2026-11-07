@@ -33,6 +33,25 @@ public class MainActivityUiTest {
     @Rule public ActivityScenarioRule<MainActivity> rule =
             new ActivityScenarioRule<>(MainActivity.class);
 
+    @org.junit.Before public void awaitForegroundActivity() {
+        // Headless launchers can relaunch after font/configuration changes.
+        // Establish the same foreground precondition as tapping the app icon.
+        rule.getScenario().onActivity(activity->activity.startActivity(
+                new android.content.Intent(activity,MainActivity.class).addFlags(
+                        android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                                | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)));
+        int stable=0;
+        for(int i=0;i<150;i++) {
+            final boolean[] focused={false};
+            rule.getScenario().onActivity(activity->focused[0]=activity.hasWindowFocus());
+            if(focused[0])stable++;else stable=0;
+            if(stable>=5)return;
+            dismissLauncherAnr();
+            SystemClock.sleep(100);
+        }
+        org.junit.Assert.fail("MasterCRM must own a stable foreground window before UI interaction");
+    }
+
     // Recreated modal windows can take focus before the Activity root. Select
     // their actual root instead of waiting for the background Activity to focus.
     private androidx.test.espresso.ViewInteraction dialogField(String description) {
@@ -78,6 +97,72 @@ public class MainActivityUiTest {
             // Pixel Launcher/Quickstep system ANR.
             step.run();
         }
+    }
+
+    @Test public void pdfExportCompletesAfterActivityRecreation() throws Exception {
+        final String title="PDF rotation invariant 1.6";
+        final long[] jobId={0};
+        rule.getScenario().onActivity(activity->{
+            try(CrmStore db=new CrmStore(activity)) {
+                CrmStore.Client client=new CrmStore.Client();client.name="PDF rotation client";
+                CrmStore.Job job=new CrmStore.Job();job.clientId=db.saveClient(client);
+                job.title=title;job.price=76500;jobId[0]=db.saveJob(job);
+            }
+        });
+        android.app.Instrumentation instrumentation=InstrumentationRegistry.getInstrumentation();
+        android.content.IntentFilter filter=new android.content.IntentFilter(android.content.Intent.ACTION_CREATE_DOCUMENT);
+        filter.addCategory(android.content.Intent.CATEGORY_OPENABLE);filter.addDataType("application/pdf");
+        android.app.Instrumentation.ActivityMonitor chooser=instrumentation.addMonitor(filter,null,true);
+        try {
+            dismissLauncherAnr();
+            onView(withContentDescription("Раздел: Заказы")).perform(click());
+            onView(withText(title)).perform(scrollTo(),click());
+            onView(withText("Заказ-наряд PDF")).inRoot(isDialog()).perform(scrollTo(),click());
+            assertEquals(1,chooser.getHits());
+            // Simulate Android recreating the app while its document picker owns the UI.
+            rule.getScenario().recreate();
+            rule.getScenario().onActivity(activity->{
+                java.io.File output=new java.io.File(activity.getCacheDir(),"rotation-"+System.nanoTime()+".pdf");
+                activity.onActivityResult(23,android.app.Activity.RESULT_OK,
+                        new android.content.Intent().setData(android.net.Uri.fromFile(output)));
+                org.junit.Assert.assertTrue("PDF must be generated for the original selected order",output.length()>1000);
+                try(android.graphics.pdf.PdfRenderer pdf=new android.graphics.pdf.PdfRenderer(
+                        android.os.ParcelFileDescriptor.open(output,android.os.ParcelFileDescriptor.MODE_READ_ONLY))) {
+                    assertEquals(1,pdf.getPageCount());
+                } catch(java.io.IOException ex) {throw new AssertionError(ex);}
+                try(CrmStore db=new CrmStore(activity)) {
+                    assertEquals(76500,db.job(jobId[0]).price);
+                    assertEquals(0,db.job(jobId[0]).paid);
+                }
+            });
+        } finally {instrumentation.removeMonitor(chooser);}
+    }
+
+    @Test public void darkFormSelectedValueAndPopupHaveReadableContrast() {
+        dismissLauncherAnr();
+        onView(withContentDescription("Раздел: Ещё")).perform(click());
+        onView(withText("Тёмная тема")).perform(click());
+        onView(withContentDescription("Раздел: Финансы")).perform(click());
+        onView(withContentDescription("Создать запись")).perform(click());
+        onView(androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom(android.widget.Spinner.class))
+                .inRoot(isDialog()).check((view,failure)->{
+                    if(failure!=null)throw failure;
+                    android.widget.Spinner spinner=(android.widget.Spinner)view;
+                    android.widget.TextView selected=(android.widget.TextView)spinner.getSelectedView();
+                    org.junit.Assert.assertNotNull(selected);
+                    // Check against both the dialog surface and our popup panel.
+                    int surface=android.graphics.Color.parseColor("#424242");
+                    int panel=android.graphics.Color.parseColor("#1F2937");
+                    org.junit.Assert.assertTrue("Selected text must reach 4.5:1 contrast",
+                            androidx.core.graphics.ColorUtils.calculateContrast(selected.getCurrentTextColor(),surface)>=4.5);
+                    android.widget.TextView popup=(android.widget.TextView)spinner.getAdapter()
+                            .getDropDownView(0,null,new android.widget.FrameLayout(view.getContext()));
+                    org.junit.Assert.assertTrue("Popup text must reach 4.5:1 contrast",
+                            androidx.core.graphics.ColorUtils.calculateContrast(popup.getCurrentTextColor(),panel)>=4.5);
+                });
+        onView(withText("Отмена")).inRoot(isDialog()).perform(click());
+        onView(withContentDescription("Раздел: Ещё")).perform(click());
+        onView(withText("Светлая тема")).perform(click());
     }
 
     @Test public void expenseKeepsJobBeyondFirstPage() {
