@@ -458,6 +458,16 @@ public final class CrmStore extends SQLiteOpenHelper {
         }
         return list;
     }
+    /** Bounded client history for UI; large histories never inflate 1000 cards at once. */
+    public synchronized List<Job> jobsForClient(long clientId,int page) {
+        List<Job> list=new ArrayList<>();
+        try(Cursor c=getReadableDatabase().rawQuery(
+                JOB_SELECT+"WHERE j.client_id=? ORDER BY j.id DESC LIMIT 100 OFFSET ?",
+                new String[]{Long.toString(clientId),Long.toString(Math.max(0L,(long)page)*100)})) {
+            while(c.moveToNext())list.add(readJob(c));
+        }
+        return list;
+    }
     /**
      * Optional one-tap workflow. No skipping stages and no transition out of a
      * delivered/archived order. A fully paid delivered order becomes archived,

@@ -18,13 +18,13 @@ System bars, cutouts and IME use AndroidX Insets. Floating form windows use adju
 
 Activity state preserves editor text, cursor, spinners, client selection, list search/filter/page/scroll and open detail cards. Draft restoration never calls financial writes. Password forms are excluded. Tapping outside a data-entry form no longer discards it. Explicit Cancel/Back still dismisses a draft.
 
-Expense actions originating beyond the first page retain the originating job. Package ID, schema version 2, backup formats and pinned signing key are unchanged.
+Client history renders at most 100 jobs per page instead of inflating up to 1000 cards. Expense actions originating beyond the first page retain the originating job. Package ID, schema version 2, backup formats and pinned signing key are unchanged.
 
 ## Validation status
 
 Local JDK/Gradle 8.11.1, SDK 35: 19 JVM tests passed; Lint passed with no errors (existing warnings about dependency versions, framework ExifInterface and extraction rules); debug and instrumentation APKs built successfully. CI uses the project's exact Gradle 8.9 configuration.
 
-Regression instrumentation covers actual visible IME and field bounds, client/order/payment/expense drafts after Activity recreation, selected tab/search restoration and financial invariants. Existing SQLite, backup, camera, debt and workflow tests remain enabled. CI now runs API 34 and 35, enabling the soft keyboard even with emulator hardware input.
+Regression instrumentation covers actual visible IME and field bounds, client/order/payment/expense drafts after Activity recreation, selected tab/search restoration and financial invariants. Existing SQLite, backup, camera, debt and workflow tests remain enabled. CI now runs API 34 (100% font) and 35 (130% font), including actual portrait/landscape rotation, enabling the soft keyboard even with emulator hardware input.
 
 Release verification is pending CI completion. Main-only signed upgrade tests now build immutable 0.5 and 1.5 baselines with the existing private key and verify install-over updates on disposable emulators. The synthetic script refuses real devices. No signing material is stored locally or committed.
 

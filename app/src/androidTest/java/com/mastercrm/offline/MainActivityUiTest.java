@@ -73,6 +73,41 @@ public class MainActivityUiTest {
         }
     }
 
+    @Test public void expenseKeepsJobBeyondFirstPage() {
+        final long[] oldest={0};
+        final String title="Oldest expense linkage UI 1.6";
+        rule.getScenario().onActivity(activity->{
+            try(CrmStore db=new CrmStore(activity)) {
+                CrmStore.Client client=new CrmStore.Client();client.name="Expense pagination client";
+                long clientId=db.saveClient(client);
+                for(int i=0;i<102;i++) {
+                    CrmStore.Job job=new CrmStore.Job();job.clientId=clientId;
+                    job.title=i==0?title:"Expense pagination filler "+i;
+                    long id=db.saveJob(job);if(i==0)oldest[0]=id;
+                }
+                assertEquals(100,db.jobsForClient(clientId,0).size());
+                assertEquals(2,db.jobsForClient(clientId,1).size());
+                assertEquals(oldest[0],db.jobsForClient(clientId,1).get(1).id);
+            }
+        });
+        dismissLauncherAnr();
+        onView(withContentDescription("Раздел: Заказы")).perform(click());
+        onView(androidx.test.espresso.matcher.ViewMatchers.withHint(
+                "Номер, услуга, описание, клиент или телефон"))
+                .perform(replaceText(title),androidx.test.espresso.action.ViewActions.pressImeActionButton());
+        onView(withText(title)).perform(scrollTo(),click());
+        onView(withText("+ Расход по заказу")).perform(scrollTo(),click());
+        onView(withContentDescription("Сумма, ₽"))
+                .perform(scrollTo(),replaceText("1.23"),closeSoftKeyboard());
+        onView(withText("Сохранить")).perform(click());
+        rule.getScenario().onActivity(activity->{
+            try(CrmStore db=new CrmStore(activity)) {
+                assertEquals(oldest[0],db.expenses(1).get(0).jobId);
+                assertEquals(123,db.expenses(1).get(0).amount);
+            }
+        });
+    }
+
     @Test public void focusedFieldRemainsAboveKeyboard() {
         dismissLauncherAnr();
         onView(withContentDescription("Раздел: Клиенты")).perform(click());

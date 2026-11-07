@@ -77,6 +77,7 @@ public final class MainActivity extends Activity {
     private LinearLayout body;
     private AlertDialog activeJobDialog;
     private long detailJobId, detailClientId;
+    private int detailClientPage;
     private AlertDialog clientDialog;
     private ScrollView jobDetailScroll, clientDetailScroll;
     private AlertDialog editorDialog;
@@ -145,7 +146,7 @@ public final class MainActivity extends Activity {
         scroll.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{
             View focused=scroll.findFocus();
             if(focused instanceof EditText) focused.post(()->{
-                Rect rect=new Rect();focused.getDrawingRect(rect);
+                Rect rect=new Rect();focused.getFocusedRect(rect);
                 focused.requestRectangleOnScreen(rect,false);
             });
         });
@@ -184,7 +185,7 @@ public final class MainActivity extends Activity {
             else {
                 long clientId=state.getLong("detailClient"),jobId=state.getLong("detailJob");
                 if(clientId>0 && store.client(clientId)!=null) {
-                    clientDetails(clientId);
+                    clientDetails(clientId,state.getInt("clientPage"));
                     clientDetailScroll.post(()->clientDetailScroll.scrollTo(0,state.getInt("clientScroll")));
                 }
                 if(jobId>0 && store.job(jobId)!=null) {
@@ -203,6 +204,7 @@ public final class MainActivity extends Activity {
         out.putBoolean("unpaidOnly",unpaidOnly);
         out.putInt("scroll",screenScroll==null?0:screenScroll.getScrollY());
         out.putLong("detailClient",detailClientId);out.putLong("detailJob",detailJobId);
+        out.putInt("clientPage",detailClientPage);
         out.putInt("clientScroll",clientDetailScroll==null?0:clientDetailScroll.getScrollY());
         out.putInt("jobScroll",jobDetailScroll==null?0:jobDetailScroll.getScrollY());
         if(editorDialog!=null && editorDialog.isShowing() && !editorType.isEmpty()) {
@@ -231,8 +233,10 @@ public final class MainActivity extends Activity {
         red = Color.parseColor(dark ? "#FDA4AF" : "#DC2626");
         getWindow().setStatusBarColor(bg);
         getWindow().setNavigationBarColor(panel);
-        int flags = dark ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
-        getWindow().getDecorView().setSystemUiVisibility(flags);
+        androidx.core.view.WindowInsetsControllerCompat controller=
+                WindowCompat.getInsetsController(getWindow(),getWindow().getDecorView());
+        controller.setAppearanceLightStatusBars(!dark);
+        controller.setAppearanceLightNavigationBars(!dark);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
     }
     private GradientDrawable shape(int fill, int border, int radius) {
@@ -732,7 +736,7 @@ public final class MainActivity extends Activity {
             edit.setMinLines(2);edit.setMaxLines(6);edit.setGravity(Gravity.TOP|Gravity.START);
         } else edit.setSingleLine(true);
         edit.setOnFocusChangeListener((v,focused)->{
-            if(focused)v.post(()->{Rect rect=new Rect();v.getDrawingRect(rect);
+            if(focused)v.post(()->{Rect rect=new Rect();v.getFocusedRect(rect);
                 v.requestRectangleOnScreen(rect,false);});
         });
         edit.setPadding(dp(12),dp(11),dp(12),dp(11));edit.setBackground(shape(bg,stroke,10));
@@ -776,7 +780,8 @@ public final class MainActivity extends Activity {
             c.note=note.getText().toString();store.saveClient(c);render();
         });
     }
-    private void clientDetails(long id) {
+    private void clientDetails(long id) {clientDetails(id,0);}
+    private void clientDetails(long id,int historyPage) {
         CrmStore.Client c=store.client(id);
         if(c==null){error(new IllegalArgumentException("Клиент не найден"));return;}
         LinearLayout d=form();
@@ -806,16 +811,20 @@ public final class MainActivity extends Activity {
         d.addView(button("+ Заказ для этого клиента",true,()->{clientDialog.dismiss();jobEditor(null,c.id);}));
         space(d,16);
         d.addView(label("Заказы клиента",17,true,text));space(d,8);
-        List<CrmStore.Job> clientJobs=store.jobsForClient(c.id);
+        List<CrmStore.Job> clientJobs=store.jobsForClient(c.id,historyPage);
         if(clientJobs.isEmpty()) d.addView(label("Заказов пока нет",13,false,sub));
         for(CrmStore.Job j:clientJobs) {
             d.addView(jobRow(j));space(d,12);
         }
+        if(historyPage>0)d.addView(button("← Предыдущие заказы клиента",false,
+                ()->clientDetails(id,historyPage-1)));
+        if(clientJobs.size()==100)d.addView(button("Следующие заказы клиента →",false,
+                ()->clientDetails(id,historyPage+1)));
         ScrollView scroll=new ScrollView(this);scroll.addView(d);
         if(clientDialog!=null)clientDialog.dismiss();
         AlertDialog details=alertBuilder().setTitle("Карточка клиента")
                 .setView(scroll).setPositiveButton("Закрыть",null).create();
-        clientDialog=details;detailClientId=id;clientDetailScroll=scroll;
+        clientDialog=details;detailClientId=id;detailClientPage=historyPage;clientDetailScroll=scroll;
         details.setOnDismissListener(ignored->{
             if(clientDialog==details){clientDialog=null;detailClientId=0;}
         });
