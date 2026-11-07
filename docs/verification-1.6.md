@@ -26,7 +26,13 @@ Local JDK/Gradle 8.11.1, SDK 35: 19 JVM tests passed; Lint passed with no errors
 
 Regression instrumentation covers actual visible IME and field bounds, client/order/payment/expense drafts after Activity recreation, selected tab/search restoration and financial invariants. Existing SQLite, backup, camera, debt and workflow tests remain enabled. CI now runs API 34 (100% font) and 35 (130% font), including actual portrait/landscape rotation, enabling the soft keyboard even with emulator hardware input.
 
-Release verification is pending CI completion. Main-only signed upgrade tests now build immutable 0.5 and 1.5 baselines with the existing private key and verify install-over updates on disposable emulators. The synthetic script refuses real devices. No signing material is stored locally or committed.
+[PR #20](https://github.com/xatabihc/MASTERCRM/pull/20) merged as `14655ffb74e6054fb23205e13976ca95f9d90493` after [all required checks passed](https://github.com/xatabihc/MASTERCRM/actions/runs/42384103021): 19 JVM tests, Lint/build, 45 instrumentation tests on each Android API.
+
+[Signed APK release](https://github.com/xatabihc/MASTERCRM/actions/runs/42384657471) succeeded. Independently verified version 16/1.6.0, package, pinned certificate, v2/v3 signature and absence of INTERNET permission. APK SHA-256: `95172f580bbd810efa7a4f4f732b14ff42c5742d1c807984ffb0fe3b6d55ff98`.
+
+[Signed upgrade matrix](https://github.com/xatabihc/MASTERCRM/actions/runs/42384657461) passed both immutable 0.5 → 1.6 and 1.5 → 1.6 scenarios. Both retained their synthetic client using in-place installation. The synthetic script refuses real devices. No signing material is stored locally or committed.
+
+The first post-merge API 35 run exposed an Espresso root-selection race after Activity recreation: it waited for the background Activity to focus although a restored modal dialog owned focus. Test queries now explicitly select dialog roots, and expense draft verification repeats recreation three times. This follow-up changes tests/documentation only; production code and APK version are unchanged. Final CI/device evidence is recorded in the follow-up PR.
 
 ## Safe continuation / installation
 
