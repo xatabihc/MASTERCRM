@@ -95,7 +95,10 @@ public class MainActivityUiTest {
         onView(androidx.test.espresso.matcher.ViewMatchers.withHint(
                 "Номер, услуга, описание, клиент или телефон"))
                 .perform(replaceText(title),androidx.test.espresso.action.ViewActions.pressImeActionButton());
-        onView(withText(title)).perform(scrollTo(),click());
+        onView(org.hamcrest.Matchers.allOf(withText(title),
+                org.hamcrest.Matchers.not(androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom(
+                        android.widget.EditText.class)))))
+                .perform(scrollTo(),click());
         onView(withText("+ Расход по заказу")).perform(scrollTo(),click());
         onView(withContentDescription("Сумма, ₽"))
                 .perform(scrollTo(),replaceText("1.23"),closeSoftKeyboard());
