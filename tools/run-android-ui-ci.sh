@@ -4,6 +4,11 @@
 # state across separate lines there does not work.
 set -uo pipefail
 
+# Mandatory guard BEFORE adb settings, Gradle or any test can modify the
+# installed database. A real phone must never run destructive CI tests.
+EMULATOR_SERIAL="$(bash tools/assert-disposable-emulator.sh)" || exit 2
+export ANDROID_SERIAL="$EMULATOR_SERIAL"
+
 # Exercise actual soft-input insets even when the emulator exposes a hardware keyboard.
 adb shell settings put secure show_ime_with_hard_keyboard 1
 adb shell settings put system font_scale "${MASTERCRM_FONT_SCALE:-1.0}"
