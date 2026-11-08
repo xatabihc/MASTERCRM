@@ -178,6 +178,66 @@ public final class ReleaseGateReliabilityTest {
         }
     }
 
+    @Test public void oneHundredTwentyRealJpegImagesRoundTripAndDecode()
+            throws Exception {
+        long client=createClient(2000);
+        long[] photoIds=new long[120];
+        int count=0;
+        // Unlike JPEG-like byte arrays, these are genuine compressed Android
+        // bitmaps in three sizes and portrait/landscape orientations.
+        for(int order=0;order<12;order++) {
+            long job=createJob(client,order);
+            for(int photoIndex=0;photoIndex<10;photoIndex++) {
+                int shape=(order+photoIndex)%3;
+                int width=shape==0?720:(shape==1?320:480);
+                int height=shape==0?480:(shape==1?640:320);
+                android.graphics.Bitmap source=android.graphics.Bitmap.createBitmap(
+                        width,height,android.graphics.Bitmap.Config.ARGB_8888);
+                android.graphics.Canvas canvas=new android.graphics.Canvas(source);
+                android.graphics.Paint brush=new android.graphics.Paint();
+                brush.setColor(android.graphics.Color.rgb(
+                        (order*19+photoIndex*7)%256,
+                        (order*29+photoIndex*13)%256,
+                        (order*53+photoIndex*3)%256));
+                canvas.drawColor(brush.getColor());
+                brush.setColor(android.graphics.Color.WHITE);
+                canvas.drawRect(photoIndex+6,order+7,width/2,height/2,brush);
+                java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();
+                assertTrue(source.compress(android.graphics.Bitmap.CompressFormat.JPEG,
+                        86,bytes));
+                source.recycle();
+                byte[] jpeg=bytes.toByteArray();
+                assertTrue("Real JPEG should be large enough",jpeg.length>1000);
+                photoIds[count++]=store.addPhoto(job,photoIndex<5?"before":"after",jpeg);
+            }
+        }
+        assertEquals(120,count);
+        char[] password="Synthetic real JPEG release test password".toCharArray();
+        try {
+            byte[] encrypted=export(password);
+            try(InputStream verified=StreamBackupCrypto.decrypt(
+                    new ByteArrayInputStream(encrypted),password)) {
+                StreamCrmArchive.VerificationResult result=
+                        StreamCrmArchive.verify(store,verified);
+                assertEquals(12,result.jobs);
+                assertEquals(120,result.photos);
+            }
+            restore(encrypted,password);
+            for(int i=0;i<photoIds.length;i++) {
+                // A single 2 MB BLOB can be decoded without loading all photos.
+                long orderId=(i/10)+1;
+                CrmStore.Photo full=store.photo(photoIds[i],orderId);
+                assertNotNull("JPEG must survive archive restore",full);
+                android.graphics.Bitmap decoded=PhotoBitmapDecoder.decode(full.jpeg,320);
+                assertNotNull("Restored JPEG must be decodable",decoded);
+                assertTrue(decoded.getWidth()<=320&&decoded.getHeight()<=320);
+                decoded.recycle();
+            }
+        } finally {
+            Arrays.fill(password,'\\0');
+        }
+    }
+
     @Test public void largeSyntheticCrmRoundTripPreservesAllMoneyAndPhotos()
             throws Exception {
         long[] clients=new long[600];
