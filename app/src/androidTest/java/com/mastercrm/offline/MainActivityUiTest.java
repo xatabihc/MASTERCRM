@@ -110,7 +110,8 @@ public class MainActivityUiTest {
                 .perform(scrollTo()).check(matches(isDisplayed()));
         onView(withText("Импорт JSON (без защиты)")).inRoot(isDialog())
                 .perform(scrollTo()).check(matches(isDisplayed()));
-        onView(withText("Закрыть")).inRoot(isDialog()).perform(click());
+        onView(withText(org.hamcrest.Matchers.equalToIgnoringCase("Закрыть")))
+                .inRoot(isDialog()).perform(click());
     }
 
     @Test public void pdfExportCompletesAfterActivityRecreation() throws Exception {
