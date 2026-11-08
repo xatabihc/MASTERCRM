@@ -404,6 +404,7 @@ public final class MainActivity extends Activity {
     private void dashboard() {
         CrmStore.Summary s=store.summary();
         CrmStore.PeriodMetrics cash=store.periodMetrics(period);
+        List<CrmStore.Job> recentJobs=store.jobs("","",0);
         String backupWarning=BackupReminder.warning(s.totalClients>0,
                 getPreferences(MODE_PRIVATE).getLong("last_verified_stream_backup",0),
                 System.currentTimeMillis());
@@ -413,6 +414,25 @@ public final class MainActivity extends Activity {
             reminder.addView(label(backupWarning,13,false,sub));
             space(reminder,8);
             reminder.addView(button("Создать защищённую копию",false,()->navigate(4)));
+        }
+        if(s.totalClients==0) {
+            LinearLayout welcome=card(body);
+            heading(welcome,"Добро пожаловать!");
+            welcome.addView(label("MasterCRM поможет вести заказы, оплаты и расходы без интернета.",15,false,text));
+            space(welcome,12);
+            welcome.addView(label("1. Добавьте первого клиента.",14,true,text));
+            space(welcome,5);
+            welcome.addView(label("2. Создайте заказ и укажите стоимость.",14,false,sub));
+            space(welcome,5);
+            welcome.addView(label("3. Отмечайте оплаты и сохраняйте защищённую резервную копию.",14,false,sub));
+            space(welcome,12);
+            welcome.addView(button("Добавить первого клиента",true,()->clientEditor(null)));
+        } else if(recentJobs.isEmpty()) {
+            LinearLayout welcome=card(body);
+            heading(welcome,"Пора создать первый заказ");
+            welcome.addView(label("Клиенты уже добавлены. Создайте работу, укажите стоимость и срок — затем отмечайте оплаты.",14,false,sub));
+            space(welcome,12);
+            welcome.addView(button("Создать первый заказ",true,()->jobEditor(null,0)));
         }
         periodSelector(body);
         LinearLayout hero=card(body);
@@ -448,10 +468,9 @@ public final class MainActivity extends Activity {
         space(quick,8);
         quick.addView(button("Расход",false,()->expenseEditor(0)));
         LinearLayout recent=card(body);heading(recent,"Последние заказы");
-        List<CrmStore.Job> list=store.jobs("","",0);
-        if(list.isEmpty())recent.addView(label("Заказов пока нет. Создайте первого клиента и заказ.",14,false,sub));
-        for(int i=0;i<Math.min(5,list.size());i++) recent.addView(jobRow(list.get(i)));
-        if(list.size()>5){space(recent,8);recent.addView(button("Все заказы",false,()->navigate(1)));}
+        if(recentJobs.isEmpty())recent.addView(label("Заказов пока нет. Используйте подсказку выше, чтобы начать.",14,false,sub));
+        for(int i=0;i<Math.min(5,recentJobs.size());i++) recent.addView(jobRow(recentJobs.get(i)));
+        if(recentJobs.size()>5){space(recent,8);recent.addView(button("Все заказы",false,()->navigate(1)));}
     }
     private void searchBar(LinearLayout target,String hint) {
         EditText edit=new EditText(this);edit.setSingleLine(true);
