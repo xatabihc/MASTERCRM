@@ -739,9 +739,9 @@ public final class MainActivity extends Activity {
         AlertDialog legacyDialog=alertBuilder().setTitle("Дополнительные форматы")
                 .setPositiveButton("Закрыть",null).create();
         LinearLayout old=form();
-        space(backup,16);
+        space(old,16);
         old.addView(label("Старый формат .mcrm: также зашифрован, но для больших архивов использует больше памяти. Совместимость сохранена.",12,false,sub));
-        space(backup,10);
+        space(old,10);
         old.addView(button("Создать старую копию .mcrm",false,()->{
             legacyDialog.dismiss();
             Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);
@@ -750,7 +750,7 @@ public final class MainActivity extends Activity {
             i.putExtra(Intent.EXTRA_TITLE,"mastercrm-"+CrmStore.today()+BackupCrypto.EXTENSION);
             startActivityForResult(i,EXPORT_SECURE);
         }));
-        space(backup,8);
+        space(old,8);
         old.addView(button("Восстановить старую копию .mcrm",false,()->{
             legacyDialog.dismiss();
             Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
@@ -758,9 +758,9 @@ public final class MainActivity extends Activity {
             i.setType("*/*");
             startActivityForResult(i,IMPORT_SECURE);
         }));
-        space(backup,16);
+        space(old,16);
         old.addView(label("Совместимость: старый JSON без шифрования. Такой файл содержит имена, телефоны, суммы и фотографии открытым текстом.",13,false,sub));
-        space(backup,10);
+        space(old,10);
         old.addView(button("Экспорт JSON (без защиты)",false,()->{
             legacyDialog.dismiss();
             Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);
@@ -768,7 +768,7 @@ public final class MainActivity extends Activity {
             i.putExtra(Intent.EXTRA_TITLE,"mastercrm-backup-"+CrmStore.today()+".json");
             startActivityForResult(i,EXPORT_JSON);
         }));
-        space(backup,8);
+        space(old,8);
         old.addView(button("Импорт JSON (без защиты)",false,()->{
             legacyDialog.dismiss();
             Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
