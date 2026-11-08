@@ -99,6 +99,21 @@ public class MainActivityUiTest {
         }
     }
 
+    @Test public void legacyBackupsAreAvailableOnlyInAdvancedDialog() {
+        withLauncherRecovery(()->onView(withContentDescription("Раздел: Ещё"))
+                .perform(click()));
+        onView(withText("Экспорт JSON (без защиты)")).check(
+                androidx.test.espresso.assertion.ViewAssertions.doesNotExist());
+        onView(withText("Дополнительно: старые форматы (.mcrm и JSON)"))
+                .perform(scrollTo(),click());
+        onView(withText("Создать старую копию .mcrm")).inRoot(isDialog())
+                .perform(scrollTo()).check(matches(isDisplayed()));
+        onView(withText("Импорт JSON (без защиты)")).inRoot(isDialog())
+                .perform(scrollTo()).check(matches(isDisplayed()));
+        onView(withText(org.hamcrest.Matchers.equalToIgnoringCase("Закрыть")))
+                .inRoot(isDialog()).perform(click());
+    }
+
     @Test public void pdfExportCompletesAfterActivityRecreation() throws Exception {
         final String title="PDF rotation invariant 1.6";
         final long[] jobId={0};

@@ -13,9 +13,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
 import android.media.ExifInterface;
-import android.graphics.Paint;
 import android.graphics.Typeface;
-import android.graphics.pdf.PdfDocument;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
@@ -404,6 +402,7 @@ public final class MainActivity extends Activity {
     private void dashboard() {
         CrmStore.Summary s=store.summary();
         CrmStore.PeriodMetrics cash=store.periodMetrics(period);
+        List<CrmStore.Job> recentJobs=store.jobs("","",0);
         String backupWarning=BackupReminder.warning(s.totalClients>0,
                 getPreferences(MODE_PRIVATE).getLong("last_verified_stream_backup",0),
                 System.currentTimeMillis());
@@ -413,6 +412,25 @@ public final class MainActivity extends Activity {
             reminder.addView(label(backupWarning,13,false,sub));
             space(reminder,8);
             reminder.addView(button("Создать защищённую копию",false,()->navigate(4)));
+        }
+        if(s.totalClients==0) {
+            LinearLayout welcome=card(body);
+            heading(welcome,"Добро пожаловать!");
+            welcome.addView(label("MasterCRM поможет вести заказы, оплаты и расходы без интернета.",15,false,text));
+            space(welcome,12);
+            welcome.addView(label("1. Добавьте первого клиента.",14,true,text));
+            space(welcome,5);
+            welcome.addView(label("2. Создайте заказ и укажите стоимость.",14,false,sub));
+            space(welcome,5);
+            welcome.addView(label("3. Отмечайте оплаты и сохраняйте защищённую резервную копию.",14,false,sub));
+            space(welcome,12);
+            welcome.addView(button("Добавить первого клиента",true,()->clientEditor(null)));
+        } else if(recentJobs.isEmpty()) {
+            LinearLayout welcome=card(body);
+            heading(welcome,"Пора создать первый заказ");
+            welcome.addView(label("Клиенты уже добавлены. Создайте работу, укажите стоимость и срок — затем отмечайте оплаты.",14,false,sub));
+            space(welcome,12);
+            welcome.addView(button("Создать первый заказ",true,()->jobEditor(null,0)));
         }
         periodSelector(body);
         LinearLayout hero=card(body);
@@ -442,16 +460,19 @@ public final class MainActivity extends Activity {
             soon.addView(button("Все ближайшие заказы",false,()->showDueOrders(2)));
         }
         LinearLayout quick=card(body);heading(quick,"Быстрые действия");
-        quick.addView(button("Новый заказ",true,()->jobEditor(null,0)));
-        space(quick,8);
-        quick.addView(button("Добавить клиента",false,()->clientEditor(null)));
+        if(s.totalClients==0) {
+            quick.addView(button("Добавить клиента",true,()->clientEditor(null)));
+        } else {
+            quick.addView(button("Новый заказ",true,()->jobEditor(null,0)));
+            space(quick,8);
+            quick.addView(button("Добавить клиента",false,()->clientEditor(null)));
+        }
         space(quick,8);
         quick.addView(button("Расход",false,()->expenseEditor(0)));
         LinearLayout recent=card(body);heading(recent,"Последние заказы");
-        List<CrmStore.Job> list=store.jobs("","",0);
-        if(list.isEmpty())recent.addView(label("Заказов пока нет. Создайте первого клиента и заказ.",14,false,sub));
-        for(int i=0;i<Math.min(5,list.size());i++) recent.addView(jobRow(list.get(i)));
-        if(list.size()>5){space(recent,8);recent.addView(button("Все заказы",false,()->navigate(1)));}
+        if(recentJobs.isEmpty())recent.addView(label("Заказов пока нет. Используйте подсказку выше, чтобы начать.",14,false,sub));
+        for(int i=0;i<Math.min(5,recentJobs.size());i++) recent.addView(jobRow(recentJobs.get(i)));
+        if(recentJobs.size()>5){space(recent,8);recent.addView(button("Все заказы",false,()->navigate(1)));}
     }
     private void searchBar(LinearLayout target,String hint) {
         EditText edit=new EditText(this);edit.setSingleLine(true);
@@ -703,44 +724,62 @@ public final class MainActivity extends Activity {
         }));
         space(backup,8);
         backup.addView(label("Проверка расшифрует архив и проверит все записи, суммы и фото, но оставит текущую базу без изменений.",12,false,sub));
-        space(backup,16);
-        backup.addView(label("Старый формат .mcrm: также зашифрован, но для больших архивов использует больше памяти. Совместимость сохранена.",12,false,sub));
-        space(backup,10);
-        backup.addView(button("Создать старую копию .mcrm",false,()->{
-            Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);
-            i.addCategory(Intent.CATEGORY_OPENABLE);
-            i.setType("application/octet-stream");
-            i.putExtra(Intent.EXTRA_TITLE,"mastercrm-"+CrmStore.today()+BackupCrypto.EXTENSION);
-            startActivityForResult(i,EXPORT_SECURE);
-        }));
-        space(backup,8);
-        backup.addView(button("Восстановить старую копию .mcrm",false,()->{
-            Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
-            i.addCategory(Intent.CATEGORY_OPENABLE);
-            i.setType("*/*");
-            startActivityForResult(i,IMPORT_SECURE);
-        }));
-        space(backup,16);
-        backup.addView(label("Совместимость: старый JSON без шифрования. Такой файл содержит имена, телефоны, суммы и фотографии открытым текстом.",13,false,sub));
-        space(backup,10);
-        backup.addView(button("Экспорт JSON (без защиты)",false,()->{
-            Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);
-            i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("application/json");
-            i.putExtra(Intent.EXTRA_TITLE,"mastercrm-backup-"+CrmStore.today()+".json");
-            startActivityForResult(i,EXPORT_JSON);
-        }));
-        space(backup,8);
-        backup.addView(button("Импорт JSON (без защиты)",false,()->{
-            Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
-            i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("*/*");
-            startActivityForResult(i,IMPORT_JSON);
-        }));
+        space(backup,14);
+        backup.addView(button("Дополнительно: старые форматы (.mcrm и JSON)",false,
+                ()->legacyBackupOptions()));
         LinearLayout about=card(body);heading(about,"О приложении");
         about.addView(label("MasterCRM Offline Preview · "+installedVersion(),14,true,text));
         space(about,8);
         about.addView(label("Работает без сети, серверов и платных сервисов. Отдельный пакет не заменяет установленную MasterCRM 0.9.4.",13,false,sub));
         space(about,6);
         about.addView(label("Не является фискальной системой; документы не заменяют кассовые чеки.",12,false,sub));
+    }
+    /** Keep legacy backup compatibility without crowding the primary safe path. */
+    private void legacyBackupOptions() {
+        AlertDialog legacyDialog=alertBuilder().setTitle("Дополнительные форматы")
+                .setPositiveButton("Закрыть",null).create();
+        LinearLayout old=form();
+        space(old,16);
+        old.addView(label("Старый формат .mcrm: также зашифрован, но для больших архивов использует больше памяти. Совместимость сохранена.",12,false,sub));
+        space(old,10);
+        old.addView(button("Создать старую копию .mcrm",false,()->{
+            legacyDialog.dismiss();
+            Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("application/octet-stream");
+            i.putExtra(Intent.EXTRA_TITLE,"mastercrm-"+CrmStore.today()+BackupCrypto.EXTENSION);
+            startActivityForResult(i,EXPORT_SECURE);
+        }));
+        space(old,8);
+        old.addView(button("Восстановить старую копию .mcrm",false,()->{
+            legacyDialog.dismiss();
+            Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("*/*");
+            startActivityForResult(i,IMPORT_SECURE);
+        }));
+        space(old,16);
+        old.addView(label("Совместимость: старый JSON без шифрования. Такой файл содержит имена, телефоны, суммы и фотографии открытым текстом.",13,false,sub));
+        space(old,10);
+        old.addView(button("Экспорт JSON (без защиты)",false,()->{
+            legacyDialog.dismiss();
+            Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("application/json");
+            i.putExtra(Intent.EXTRA_TITLE,"mastercrm-backup-"+CrmStore.today()+".json");
+            startActivityForResult(i,EXPORT_JSON);
+        }));
+        space(old,8);
+        old.addView(button("Импорт JSON (без защиты)",false,()->{
+            legacyDialog.dismiss();
+            Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("*/*");
+            startActivityForResult(i,IMPORT_JSON);
+        }));
+
+        ScrollView content=new ScrollView(this);
+        content.addView(old);
+        legacyDialog.setView(content);
+        legacyDialog.show();
     }
     private void empty(String title) {
         LinearLayout c=card(body);c.addView(label(title,17,true,text));
@@ -1539,63 +1578,15 @@ public final class MainActivity extends Activity {
         return out.toString();
     }
     private void writePdf(Uri uri,long id) {
-        CrmStore.Job j=store.job(id);
-        if(j==null)throw new IllegalArgumentException("Заказ не найден");
-        PdfDocument pdf=new PdfDocument();
-        PdfDocument.Page page=pdf.startPage(new PdfDocument.PageInfo.Builder(595,842,1).create());
-        android.graphics.Canvas canvas=page.getCanvas();
-        Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
-        p.setColor(Color.rgb(18,31,51));
-        p.setTextSize(24);p.setTypeface(Typeface.create("sans-serif",Typeface.BOLD));
-        canvas.drawText("MasterCRM — заказ-наряд",42,66,p);
-        p.setTextSize(15);p.setTypeface(Typeface.DEFAULT);
-        int y=105;
-        String[] lines={"Номер: "+j.number,
-                "Дата: "+datetime(j.createdAt),
-                "Клиент: "+j.clientName,
-                "Телефон: "+j.clientPhone,
-                "Работа: "+j.title,
-                "Статус: "+j.status,
-                "Срок: "+j.dueDate,
-                "Стоимость: "+Money.format(j.price),
-                "Оплачено: "+Money.format(j.paid),
-                "Долг: "+Money.format(Money.outstanding(j.price,j.paid))};
-        for(String line:lines) {canvas.drawText(shorten(line,68),42,y,p);y+=31;}
-        y+=18;p.setTypeface(Typeface.create("sans-serif",Typeface.BOLD));
-        canvas.drawText("Описание работ:",42,y,p);
-        y+=28;p.setTypeface(Typeface.DEFAULT);
-        for(String line:wrapText(j.description,60)){
-            if(y>740)break;
-            canvas.drawText(line,42,y,p);y+=23;
-        }
-        p.setTextSize(11);p.setColor(Color.GRAY);
-        canvas.drawText("Информационный документ, не кассовый чек.",42,798,p);
-        pdf.finishPage(page);
+        CrmStore.Job job=store.job(id);
+        if(job==null)throw new IllegalArgumentException("Заказ не найден");
         try(OutputStream out=getContentResolver().openOutputStream(uri,"w")) {
             if(out==null)throw new IllegalStateException("Нет доступа к выбранному файлу");
-            pdf.writeTo(out);
-        }catch(java.io.IOException e) {throw new IllegalStateException("Ошибка сохранения PDF",e);}
-        finally {pdf.close();}
+            OrderPdfWriter.write(job,datetime(job.createdAt),out);
+        } catch(java.io.IOException e) {
+            throw new IllegalStateException("Ошибка сохранения PDF",e);
+        }
         Toast.makeText(this,"PDF сохранён",Toast.LENGTH_SHORT).show();
     }
-    private String shorten(String s,int max) {
-        return s.length()<=max?s:s.substring(0,max-1)+"…";
-    }
-    private List<String> wrapText(String s,int width) {
-        List<String> result=new ArrayList<>();
-        if(s==null||s.trim().isEmpty())return result;
-        for(String paragraph:s.split("\\n",-1)) {
-            StringBuilder line=new StringBuilder();
-            for(String word:paragraph.trim().split("\\s+")) {
-                if(line.length()+word.length()+1>width&&line.length()>0){
-                    result.add(line.toString());line.setLength(0);
-                }
-                if(word.length()>width)word=shorten(word,width);
-                if(line.length()>0)line.append(' ');
-                line.append(word);
-            }
-            result.add(line.toString());
-        }
-        return result;
-    }
+
 }
