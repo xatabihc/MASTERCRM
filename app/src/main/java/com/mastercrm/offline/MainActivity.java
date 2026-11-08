@@ -327,7 +327,7 @@ public final class MainActivity extends Activity {
         TextView h=label(TABS[tab],29,true,text);
         title.addView(h,new LinearLayout.LayoutParams(0,-2,1));
         Button add=button("+",true,()->{
-            if(tab==2)clientEditor(null);
+            if(tab==2||(tab==0&&store.summary().totalClients==0))clientEditor(null);
             else if(tab==3)expenseEditor(0);
             else if(tab==1||tab==0)jobEditor(null,0);
             else navigate(1);
@@ -359,6 +359,8 @@ public final class MainActivity extends Activity {
             n.setGravity(Gravity.CENTER);
             n.setContentDescription("Раздел: "+TABS[i]);
             n.setMinHeight(dp(52));
+            n.setSelected(i==tab);
+            n.setFocusable(true);
             n.setBackground(i==tab?shape(bg,0,11):null);
             n.setOnClickListener(v->navigate(at));
             nav.addView(n,new LinearLayout.LayoutParams(0,-2,1));
