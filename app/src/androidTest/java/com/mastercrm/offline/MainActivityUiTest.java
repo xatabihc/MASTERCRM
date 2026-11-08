@@ -99,6 +99,40 @@ public class MainActivityUiTest {
         }
     }
 
+    @Test public void mainNavigationHasAccessibleTouchTargetsAndSelectedTab() {
+        dismissLauncherAnr();
+        final String[] tabs={"Обзор","Заказы","Клиенты","Финансы","Ещё"};
+        for(String label:tabs) {
+            onView(withContentDescription("Раздел: "+label)).check((view,failure)->{
+                if(failure!=null)throw failure;
+                float density=view.getResources().getDisplayMetrics().density;
+                org.junit.Assert.assertTrue("Navigation target too narrow for "+label,
+                        view.getWidth()>=48*density);
+                org.junit.Assert.assertTrue("Navigation target too short for "+label,
+                        view.getHeight()>=48*density);
+                org.junit.Assert.assertTrue("Navigation must be keyboard focusable",
+                        view.isFocusable());
+            });
+        }
+        onView(withContentDescription("Раздел: Обзор")).check((view,failure)->{
+            if(failure!=null)throw failure;
+            org.junit.Assert.assertTrue("Overview must be announced as selected",
+                    view.isSelected());
+        });
+        onView(withContentDescription("Раздел: Заказы")).perform(click());
+        onView(withContentDescription("Раздел: Заказы")).check((view,failure)->{
+            if(failure!=null)throw failure;
+            org.junit.Assert.assertTrue("The newly selected tab must be marked",
+                    view.isSelected());
+        });
+        onView(withContentDescription("Создать запись")).check((view,failure)->{
+            if(failure!=null)throw failure;
+            float density=view.getResources().getDisplayMetrics().density;
+            org.junit.Assert.assertTrue("Create action must be at least 48 dp",
+                    view.getWidth()>=48*density&&view.getHeight()>=48*density);
+        });
+    }
+
     @Test public void legacyBackupsAreAvailableOnlyInAdvancedDialog() {
         withLauncherRecovery(()->onView(withContentDescription("Раздел: Ещё"))
                 .perform(click()));
