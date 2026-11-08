@@ -722,10 +722,26 @@ public final class MainActivity extends Activity {
         }));
         space(backup,8);
         backup.addView(label("Проверка расшифрует архив и проверит все записи, суммы и фото, но оставит текущую базу без изменений.",12,false,sub));
+        space(backup,14);
+        backup.addView(button("Дополнительно: старые форматы (.mcrm и JSON)",false,
+                ()->legacyBackupOptions()));
+        LinearLayout about=card(body);heading(about,"О приложении");
+        about.addView(label("MasterCRM Offline Preview · "+installedVersion(),14,true,text));
+        space(about,8);
+        about.addView(label("Работает без сети, серверов и платных сервисов. Отдельный пакет не заменяет установленную MasterCRM 0.9.4.",13,false,sub));
+        space(about,6);
+        about.addView(label("Не является фискальной системой; документы не заменяют кассовые чеки.",12,false,sub));
+    }
+    /** Keep legacy backup compatibility without crowding the primary safe path. */
+    private void legacyBackupOptions() {
+        AlertDialog legacyDialog=alertBuilder().setTitle("Дополнительные форматы")
+                .setPositiveButton("Закрыть",null).create();
+        LinearLayout old=form();
         space(backup,16);
-        backup.addView(label("Старый формат .mcrm: также зашифрован, но для больших архивов использует больше памяти. Совместимость сохранена.",12,false,sub));
+        old.addView(label("Старый формат .mcrm: также зашифрован, но для больших архивов использует больше памяти. Совместимость сохранена.",12,false,sub));
         space(backup,10);
-        backup.addView(button("Создать старую копию .mcrm",false,()->{
+        old.addView(button("Создать старую копию .mcrm",false,()->{
+            legacyDialog.dismiss();
             Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);
             i.addCategory(Intent.CATEGORY_OPENABLE);
             i.setType("application/octet-stream");
@@ -733,33 +749,35 @@ public final class MainActivity extends Activity {
             startActivityForResult(i,EXPORT_SECURE);
         }));
         space(backup,8);
-        backup.addView(button("Восстановить старую копию .mcrm",false,()->{
+        old.addView(button("Восстановить старую копию .mcrm",false,()->{
+            legacyDialog.dismiss();
             Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
             i.addCategory(Intent.CATEGORY_OPENABLE);
             i.setType("*/*");
             startActivityForResult(i,IMPORT_SECURE);
         }));
         space(backup,16);
-        backup.addView(label("Совместимость: старый JSON без шифрования. Такой файл содержит имена, телефоны, суммы и фотографии открытым текстом.",13,false,sub));
+        old.addView(label("Совместимость: старый JSON без шифрования. Такой файл содержит имена, телефоны, суммы и фотографии открытым текстом.",13,false,sub));
         space(backup,10);
-        backup.addView(button("Экспорт JSON (без защиты)",false,()->{
+        old.addView(button("Экспорт JSON (без защиты)",false,()->{
+            legacyDialog.dismiss();
             Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);
             i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("application/json");
             i.putExtra(Intent.EXTRA_TITLE,"mastercrm-backup-"+CrmStore.today()+".json");
             startActivityForResult(i,EXPORT_JSON);
         }));
         space(backup,8);
-        backup.addView(button("Импорт JSON (без защиты)",false,()->{
+        old.addView(button("Импорт JSON (без защиты)",false,()->{
+            legacyDialog.dismiss();
             Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
             i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("*/*");
             startActivityForResult(i,IMPORT_JSON);
         }));
-        LinearLayout about=card(body);heading(about,"О приложении");
-        about.addView(label("MasterCRM Offline Preview · "+installedVersion(),14,true,text));
-        space(about,8);
-        about.addView(label("Работает без сети, серверов и платных сервисов. Отдельный пакет не заменяет установленную MasterCRM 0.9.4.",13,false,sub));
-        space(about,6);
-        about.addView(label("Не является фискальной системой; документы не заменяют кассовые чеки.",12,false,sub));
+
+        ScrollView content=new ScrollView(this);
+        content.addView(old);
+        legacyDialog.setView(content);
+        legacyDialog.show();
     }
     private void empty(String title) {
         LinearLayout c=card(body);c.addView(label(title,17,true,text));
