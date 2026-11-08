@@ -487,7 +487,7 @@ public class CrmStoreTest {
             count+=db.photos(order.id).size();
         }
         assertEquals(250,count);
-        java.util.Arrays.fill(password,'\\0');
+        java.util.Arrays.fill(password,'\0');
     }
 
     @Test public void streamedZipRoundTripRestoresClientsJobsPaymentsAndPhotos()throws Exception {
