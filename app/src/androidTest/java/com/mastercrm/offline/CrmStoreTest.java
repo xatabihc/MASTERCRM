@@ -447,6 +447,30 @@ public class CrmStoreTest {
         java.util.Arrays.fill(pass,'\0');
     }
 
+    @Test public void photoMetadataNeverLoadsBlobAndSinglePhotoRequiresOwnerOrder() {
+        long clientId=client("Photo metadata client");
+        long first=job(clientId,10000);
+        long second=job(clientId,20000);
+        byte[] jpeg={(byte)0xff,(byte)0xd8,22,33,(byte)0xff,(byte)0xd9};
+        long id=db.addPhoto(first,"before",jpeg);
+        long otherId=db.addPhoto(second,"after",jpeg);
+
+        java.util.List<CrmStore.Photo> descriptors=db.photoMetadata(first);
+        assertEquals(1,descriptors.size());
+        assertEquals(id,descriptors.get(0).id);
+        assertEquals(first,descriptors.get(0).jobId);
+        assertEquals("before",descriptors.get(0).kind);
+        assertNull("Listing must not allocate JPEG blobs",descriptors.get(0).jpeg);
+
+        CrmStore.Photo full=db.photo(id,first);
+        assertNotNull(full);
+        assertArrayEquals(jpeg,full.jpeg);
+        assertNull("Cross-order photo access must fail",db.photo(id,second));
+        assertNull(db.photo(otherId,first));
+        assertNull(db.photo(987654L,first));
+        assertEquals(1,db.photos(first).size()); // legacy backup/photo behavior unchanged
+    }
+
     @Test public void verifiesAndRestoresTwoHundredFiftySyntheticPhotos() throws Exception {
         long clientId=client("Нагрузочная копия с фотографиями");
         char[] password="Проверочная фраза для большого архива 1.7".toCharArray();
