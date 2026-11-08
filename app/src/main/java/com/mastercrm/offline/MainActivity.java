@@ -1492,6 +1492,11 @@ public final class MainActivity extends Activity {
                                 store.restoreJson(json);
                             } finally {Arrays.fill(data,(byte)0);}
                         }
+                        // The last exported file may refer to different data after
+                        // a restore, so don't treat it as a current backup anymore.
+                        if(!exporting&&!verifyOnly)
+                            getPreferences(MODE_PRIVATE).edit()
+                                    .remove("last_verified_stream_backup").apply();
                         final String report=verificationReport;
                         runOnUiThread(()->{
                             if(verifyOnly) {
