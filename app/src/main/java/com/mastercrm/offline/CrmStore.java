@@ -714,6 +714,37 @@ public final class CrmStore extends SQLiteOpenHelper {
         }
         return result;
     }
+    /**
+     * Read lightweight photo descriptors for UI lists without loading JPEG BLOBs.
+     * The image bytes are loaded only when a thumbnail/preview is requested.
+     */
+    public synchronized List<Photo> photoMetadata(long jobId) {
+        List<Photo> result=new ArrayList<>();
+        try(Cursor c=getReadableDatabase().rawQuery(
+                "SELECT id,job_id,kind,created_at FROM job_photos WHERE job_id=? ORDER BY id",
+                new String[]{""+jobId})) {
+            while(c.moveToNext()) {
+                Photo p=new Photo();
+                p.id=num(c,"id");p.jobId=num(c,"job_id");p.kind=col(c,"kind");
+                p.createdAt=num(c,"created_at");result.add(p);
+            }
+        }
+        return result;
+    }
+    /** A single JPEG for a single owner order; never returns a different order's photo. */
+    public synchronized Photo photo(long photoId,long jobId) {
+        try(Cursor c=getReadableDatabase().rawQuery(
+                "SELECT id,job_id,kind,image,created_at FROM job_photos WHERE id=? AND job_id=?",
+                new String[]{""+photoId,""+jobId})) {
+            if(!c.moveToFirst())return null;
+            Photo p=new Photo();
+            p.id=num(c,"id");p.jobId=num(c,"job_id");p.kind=col(c,"kind");
+            p.jpeg=c.getBlob(c.getColumnIndexOrThrow("image"));
+            p.createdAt=num(c,"created_at");
+            return p;
+        }
+    }
+
     public synchronized boolean removePhoto(long photoId,long jobId) {
         return getWritableDatabase().delete("job_photos","id=? AND job_id=?",
                 new String[]{""+photoId,""+jobId})==1;

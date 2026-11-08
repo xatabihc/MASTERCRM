@@ -34,6 +34,8 @@ jobs:
           bash -n tools/run-android-ui-ci.sh
           bash -n tools/assert-disposable-emulator.sh
           bash -n tools/test-emulator-safety.sh
+          bash -n tools/publish-2.0-release-candidate.sh
+          test -s docs/RELEASE_NOTES_2_0_RC1.md
           bash tools/test-emulator-safety.sh
           bash -n tools/audit-local-mastercrm.sh
       - name: Install required Android SDK packages
