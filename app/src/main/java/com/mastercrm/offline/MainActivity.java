@@ -404,6 +404,16 @@ public final class MainActivity extends Activity {
     private void dashboard() {
         CrmStore.Summary s=store.summary();
         CrmStore.PeriodMetrics cash=store.periodMetrics(period);
+        String backupWarning=BackupReminder.warning(s.totalClients>0,
+                getPreferences(MODE_PRIVATE).getLong("last_verified_stream_backup",0),
+                System.currentTimeMillis());
+        if(!backupWarning.isEmpty()) {
+            LinearLayout reminder=card(body);
+            heading(reminder,"Защита данных");
+            reminder.addView(label(backupWarning,13,false,sub));
+            space(reminder,8);
+            reminder.addView(button("Создать защищённую копию",false,()->navigate(4)));
+        }
         periodSelector(body);
         LinearLayout hero=card(body);
         hero.addView(label("Получено "+periodName(),14,false,sub));space(hero,5);
@@ -658,7 +668,17 @@ public final class MainActivity extends Activity {
             dark=!dark;getPreferences(MODE_PRIVATE).edit().putBoolean("dark",dark).apply();render();
         }));
         LinearLayout backup=card(body);heading(backup,"Резервные копии");
+        long lastVerified=getPreferences(MODE_PRIVATE)
+                .getLong("last_verified_stream_backup",0);
+        String backupStatus=lastVerified<=0?"Нет автоматически проверенных экспортов на этом устройстве":
+                "Последняя автоматически проверенная копия: "+
+                Instant.ofEpochMilli(lastVerified).atZone(ZoneId.systemDefault())
+                        .toLocalDate().toString();
+        backup.addView(label(backupStatus,13,true,text));
+        space(backup,8);
         backup.addView(label("Рекомендуется потоковая защищённая копия .mcrm5: сохраняет фото отдельно, не загружает всю базу в память. Пароль не сохраняется.",13,false,sub));
+        space(backup,6);
+        backup.addView(label("После сохранения программа повторно открывает и проверяет копию. Храните файл отдельно от телефона и не теряйте пароль. Дата не гарантирует, что файл по-прежнему существует.",12,false,sub));
         space(backup,12);
         backup.addView(button("Создать потоковую копию .mcrm5",true,()->{
             Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);
@@ -1187,15 +1207,7 @@ public final class MainActivity extends Activity {
         },"mastercrm-photo-import").start();
     }
     private Bitmap thumbnail(byte[] jpeg) {
-        BitmapFactory.Options o=new BitmapFactory.Options();
-        o.inJustDecodeBounds=true;
-        BitmapFactory.decodeByteArray(jpeg,0,jpeg.length,o);
-        if(o.outWidth<1||o.outHeight<1)return null;
-        int sample=1;
-        while(Math.max(o.outWidth,o.outHeight)/sample>320)sample*=2;
-        o.inJustDecodeBounds=false;
-        o.inSampleSize=sample;
-        return BitmapFactory.decodeByteArray(jpeg,0,jpeg.length,o);
+        return PhotoBitmapDecoder.decode(jpeg,320);
     }
 
     private void photoSection(LinearLayout parent,String title,List<CrmStore.Photo> photos,String kind,long jobId) {
@@ -1230,7 +1242,7 @@ public final class MainActivity extends Activity {
         if(!present)parent.addView(label("Фотографий пока нет",12,false,sub));
     }
     private void showPhoto(CrmStore.Photo p) {
-        Bitmap b=BitmapFactory.decodeByteArray(p.jpeg,0,p.jpeg.length);
+        Bitmap b=PhotoBitmapDecoder.decode(p.jpeg,1600);
         if(b==null)throw new IllegalArgumentException("Фотография повреждена");
         ImageView large=new ImageView(this);
         large.setImageBitmap(b);
@@ -1357,6 +1369,8 @@ public final class MainActivity extends Activity {
                     try {
                         String input=readText(uri,80*1024*1024);
                         store.restoreJson(input);
+                        getPreferences(MODE_PRIVATE).edit()
+                                .remove("last_verified_stream_backup").apply();
                         runOnUiThread(()->{
                             Toast.makeText(this,"Резервная копия восстановлена",Toast.LENGTH_LONG).show();
                             render();
@@ -1428,6 +1442,25 @@ public final class MainActivity extends Activity {
                                         StreamCrmArchive.write(store,protectedStream);
                                     }
                                 }
+                                // Reopen the SAF file after closing it and authenticate
+                                // every block. Dry-run import always rolls back SQLite.
+                                // Never record success before this verification finishes.
+                                try {
+                                    try(InputStream written=getContentResolver().openInputStream(uri)) {
+                                        if(written==null)throw new IOException("Не удалось перечитать файл");
+                                        try(InputStream clear=StreamBackupCrypto.decrypt(
+                                                written,workerPassword)) {
+                                            StreamCrmArchive.verify(store,clear);
+                                        }
+                                    }
+                                } catch(Exception failedVerification) {
+                                    throw new IOException("Файл создан, но его не удалось "
+                                            +"проверить после записи. Не считайте эту "
+                                            +"копию надёжной; сохраните новую.",failedVerification);
+                                }
+                                getPreferences(MODE_PRIVATE).edit()
+                                        .putLong("last_verified_stream_backup",
+                                                System.currentTimeMillis()).apply();
                             } else {
                                 try(InputStream raw=getContentResolver().openInputStream(uri)) {
                                     if(raw==null)throw new IllegalStateException("Не удалось открыть файл");
@@ -1461,6 +1494,11 @@ public final class MainActivity extends Activity {
                                 store.restoreJson(json);
                             } finally {Arrays.fill(data,(byte)0);}
                         }
+                        // The last exported file may refer to different data after
+                        // a restore, so don't treat it as a current backup anymore.
+                        if(!exporting&&!verifyOnly)
+                            getPreferences(MODE_PRIVATE).edit()
+                                    .remove("last_verified_stream_backup").apply();
                         final String report=verificationReport;
                         runOnUiThread(()->{
                             if(verifyOnly) {
@@ -1468,9 +1506,11 @@ public final class MainActivity extends Activity {
                                         .setMessage(report)
                                         .setPositiveButton("Закрыть",null).show();
                             } else {
-                                Toast.makeText(this,exporting?"Защищённая копия сохранена":
+                                Toast.makeText(this,exporting?
+                                        (streaming?"Защищённая копия сохранена и проверена":
+                                                "Защищённая копия сохранена"):
                                         "Копия успешно восстановлена",Toast.LENGTH_LONG).show();
-                                if(!exporting)render();
+                                render();
                             }
                         });
                     } catch(Exception ex) {
