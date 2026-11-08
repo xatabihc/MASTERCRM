@@ -447,6 +447,49 @@ public class CrmStoreTest {
         java.util.Arrays.fill(pass,'\0');
     }
 
+    @Test public void verifiesAndRestoresTwoHundredFiftySyntheticPhotos() throws Exception {
+        long clientId=client("Нагрузочная копия с фотографиями");
+        char[] password="Проверочная фраза для большого архива 1.7".toCharArray();
+        byte[] image=new byte[4096];
+        java.util.Random random=new java.util.Random(1707);
+        for(int i=0;i<25;i++) {
+            long order=job(clientId,100000+i*1000);
+            db.addPayment(order,30000,"Аванс");
+            db.addExpense(order,5000,"Материалы","");
+            for(int p=0;p<10;p++) {
+                random.nextBytes(image);
+                image[0]=(byte)0xff;image[1]=(byte)0xd8;
+                image[image.length-2]=(byte)0xff;image[image.length-1]=(byte)0xd9;
+                db.addPhoto(order,p<5?"before":"after",image);
+            }
+        }
+        byte[] encrypted=streamedBackup(password);
+        long extra=job(client("Создан после копирования"),5000);
+        try(java.io.InputStream input=StreamBackupCrypto.decrypt(
+                new java.io.ByteArrayInputStream(encrypted),password)) {
+            StreamCrmArchive.VerificationResult result=StreamCrmArchive.verify(db,input);
+            assertEquals(25,result.jobs);
+            assertEquals(25,result.payments);
+            assertEquals(25,result.expenses);
+            assertEquals(250,result.photos);
+        }
+        assertNotNull("Verification must not mutate the live database",db.job(extra));
+        try(java.io.InputStream input=StreamBackupCrypto.decrypt(
+                new java.io.ByteArrayInputStream(encrypted),password)) {
+            StreamCrmArchive.restore(db,input);
+        }
+        assertNull(db.job(extra));
+        assertEquals(25,db.jobs("","",0).size());
+        long count=0;
+        for(CrmStore.Job order:db.jobs("","",0)) {
+            assertEquals(30000,order.paid);
+            assertEquals(5000,order.cost);
+            count+=db.photos(order.id).size();
+        }
+        assertEquals(250,count);
+        java.util.Arrays.fill(password,'\\0');
+    }
+
     @Test public void streamedZipRoundTripRestoresClientsJobsPaymentsAndPhotos()throws Exception {
         long client=client("Потоковая копия 500");
         long id=job(client,99000);
