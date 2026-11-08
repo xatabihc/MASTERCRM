@@ -462,9 +462,13 @@ public final class MainActivity extends Activity {
             soon.addView(button("Все ближайшие заказы",false,()->showDueOrders(2)));
         }
         LinearLayout quick=card(body);heading(quick,"Быстрые действия");
-        quick.addView(button("Новый заказ",true,()->jobEditor(null,0)));
-        space(quick,8);
-        quick.addView(button("Добавить клиента",false,()->clientEditor(null)));
+        if(s.totalClients==0) {
+            quick.addView(button("Добавить клиента",true,()->clientEditor(null)));
+        } else {
+            quick.addView(button("Новый заказ",true,()->jobEditor(null,0)));
+            space(quick,8);
+            quick.addView(button("Добавить клиента",false,()->clientEditor(null)));
+        }
         space(quick,8);
         quick.addView(button("Расход",false,()->expenseEditor(0)));
         LinearLayout recent=card(body);heading(recent,"Последние заказы");
