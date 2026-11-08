@@ -86,6 +86,10 @@ public final class MainActivity extends Activity {
     private Bundle restoringDraft;
     private EditText searchInput;
     private ScrollView screenScroll;
+    // A single worker prevents loading twenty multi-megabyte JPEGs at once.
+    private final java.util.concurrent.ExecutorService photoLoader=
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+    private volatile long photoRequestEpoch=0;
 
     private void beginEditor(String type, long id) {
         editorType=type; editorId=id; editorClient=null;
@@ -151,6 +155,7 @@ public final class MainActivity extends Activity {
     }
 
     private void closeJobDialog() {
+        photoRequestEpoch++; // Discard callbacks for a previous order or dialog.
         AlertDialog dialog=activeJobDialog;
         activeJobDialog=null;detailJobId=0;
         if(dialog!=null&&dialog.isShowing())dialog.dismiss();
@@ -215,6 +220,7 @@ public final class MainActivity extends Activity {
         super.onSaveInstanceState(out);
     }
     @Override public void onDestroy() {
+        photoLoader.shutdownNow();
         closeJobDialog();
         if(clientDialog!=null)clientDialog.dismiss();
         if(editorDialog!=null)editorDialog.dismiss();
@@ -1123,7 +1129,7 @@ public final class MainActivity extends Activity {
         d.addView(button("Камера · после работы",false,()->{
             closeJobDialog();capturePhoto(j.id,false);
         }));
-        List<CrmStore.Photo> photos=store.photos(j.id);
+        List<CrmStore.Photo> photos=store.photoMetadata(j.id);
         photoSection(d,"До работы",photos,"before",j.id);
         photoSection(d,"После работы",photos,"after",j.id);
         space(d,14);
@@ -1247,33 +1253,55 @@ public final class MainActivity extends Activity {
             }
         },"mastercrm-photo-import").start();
     }
-    private Bitmap thumbnail(byte[] jpeg) {
-        return PhotoBitmapDecoder.decode(jpeg,320);
+    /** One JPEG at a time: thumbnails never read every photo BLOB into RAM. */
+    private void thumbnailAsync(CrmStore.Photo meta,ImageView image,long epoch) {
+        try {
+            photoLoader.execute(()->{
+                Bitmap preview=null;
+                try {
+                    CrmStore.Photo loaded=store.photo(meta.id,meta.jobId);
+                    if(loaded!=null)preview=PhotoBitmapDecoder.decode(loaded.jpeg,320);
+                } catch(RuntimeException ignored) { /* photo may have been deleted */ }
+                if(preview==null)return;
+                final Bitmap bitmap=preview;
+                runOnUiThread(()->{
+                    if(isDestroyed()||photoRequestEpoch!=epoch||
+                            detailJobId!=meta.jobId||activeJobDialog==null||
+                            !activeJobDialog.isShowing()) {
+                        bitmap.recycle();
+                        return;
+                    }
+                    image.setImageBitmap(bitmap);
+                });
+            });
+        } catch(java.util.concurrent.RejectedExecutionException ignored) {
+            // Rotation or Activity shutdown while a preview was queued.
+        }
     }
-
-    private void photoSection(LinearLayout parent,String title,List<CrmStore.Photo> photos,String kind,long jobId) {
+    private void photoSection(LinearLayout parent,String title,
+                              List<CrmStore.Photo> photos,String kind,long jobId) {
         parent.addView(label(title,14,true,sub));space(parent,5);
         boolean present=false;
-        for(CrmStore.Photo p:photos) {
-            if(!kind.equals(p.kind))continue;
+        long epoch=photoRequestEpoch;
+        for(CrmStore.Photo meta:photos) {
+            if(!kind.equals(meta.kind))continue;
             present=true;
             LinearLayout item=row();
             ImageView thumb=new ImageView(this);
+            thumb.setBackgroundColor(panel);
             thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            Bitmap b=thumbnail(p.jpeg);
-            if(b==null)continue;
-            thumb.setImageBitmap(b);
-            thumb.setContentDescription("Открыть фото: "+title);
+            thumb.setContentDescription("Фото: "+title);
             item.addView(thumb,new LinearLayout.LayoutParams(dp(102),dp(86)));
+            thumbnailAsync(meta,thumb,epoch);
             LinearLayout actions=column();actions.setPadding(dp(10),0,0,0);
-            actions.addView(button("Посмотреть",false,()->showPhoto(p)));
+            actions.addView(button("Посмотреть",false,()->showPhoto(meta)));
             space(actions,5);
             actions.addView(button("Удалить",false,()->alertBuilder()
                     .setTitle("Удалить фотографию?")
                     .setMessage("Фотография будет удалена из этого заказа.")
                     .setNegativeButton("Отмена",null)
                     .setPositiveButton("Удалить",(dialog,which)->safe(()->{
-                        store.removePhoto(p.id,jobId);
+                        store.removePhoto(meta.id,jobId);
                         closeJobDialog();
                         render();jobDetails(jobId);
                     })).show()));
@@ -1282,15 +1310,44 @@ public final class MainActivity extends Activity {
         }
         if(!present)parent.addView(label("Фотографий пока нет",12,false,sub));
     }
-    private void showPhoto(CrmStore.Photo p) {
-        Bitmap b=PhotoBitmapDecoder.decode(p.jpeg,1600);
-        if(b==null)throw new IllegalArgumentException("Фотография повреждена");
-        ImageView large=new ImageView(this);
-        large.setImageBitmap(b);
-        large.setAdjustViewBounds(true);
-        large.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        alertBuilder().setTitle("Фото "+("before".equals(p.kind)?"до":"после"))
-                .setView(large).setPositiveButton("Закрыть",null).show();
+    /** Load the large JPEG only after a deliberate preview tap, off the UI thread. */
+    private void showPhoto(CrmStore.Photo meta) {
+        LinearLayout container=column();
+        container.setPadding(dp(12),dp(8),dp(12),dp(8));
+        container.addView(label("Загрузка фотографии…",14,false,sub));
+        AlertDialog preview=alertBuilder().setTitle("Фото "+
+                ("before".equals(meta.kind)?"до":"после"))
+                .setView(container).setPositiveButton("Закрыть",null).create();
+        preview.show();
+        try {
+            photoLoader.execute(()->{
+                Bitmap large=null;
+                try {
+                    CrmStore.Photo data=store.photo(meta.id,meta.jobId);
+                    if(data!=null)large=PhotoBitmapDecoder.decode(data.jpeg,1600);
+                } catch(RuntimeException ignored) { /* missing or invalid JPEG */ }
+                final Bitmap bitmap=large;
+                runOnUiThread(()->{
+                    if(isDestroyed()||!preview.isShowing()) {
+                        if(bitmap!=null)bitmap.recycle();
+                        return;
+                    }
+                    container.removeAllViews();
+                    if(bitmap==null) {
+                        container.addView(label("Фотография недоступна или повреждена",
+                                14,false,red));
+                        return;
+                    }
+                    ImageView image=new ImageView(this);
+                    image.setImageBitmap(bitmap);
+                    image.setAdjustViewBounds(true);
+                    image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                    container.addView(image,new LinearLayout.LayoutParams(-1,-2));
+                });
+            });
+        } catch(java.util.concurrent.RejectedExecutionException ignored) {
+            preview.dismiss();
+        }
     }
     private byte[] photoJpeg(Uri uri) {
         byte[] raw=readBytes(uri,16*1024*1024);
