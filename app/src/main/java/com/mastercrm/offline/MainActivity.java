@@ -15,7 +15,6 @@ import android.graphics.Matrix;
 import android.media.ExifInterface;
 import android.graphics.Paint;
 import android.graphics.Typeface;
-import android.graphics.pdf.PdfDocument;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
@@ -1580,63 +1579,15 @@ public final class MainActivity extends Activity {
         return out.toString();
     }
     private void writePdf(Uri uri,long id) {
-        CrmStore.Job j=store.job(id);
-        if(j==null)throw new IllegalArgumentException("Заказ не найден");
-        PdfDocument pdf=new PdfDocument();
-        PdfDocument.Page page=pdf.startPage(new PdfDocument.PageInfo.Builder(595,842,1).create());
-        android.graphics.Canvas canvas=page.getCanvas();
-        Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
-        p.setColor(Color.rgb(18,31,51));
-        p.setTextSize(24);p.setTypeface(Typeface.create("sans-serif",Typeface.BOLD));
-        canvas.drawText("MasterCRM — заказ-наряд",42,66,p);
-        p.setTextSize(15);p.setTypeface(Typeface.DEFAULT);
-        int y=105;
-        String[] lines={"Номер: "+j.number,
-                "Дата: "+datetime(j.createdAt),
-                "Клиент: "+j.clientName,
-                "Телефон: "+j.clientPhone,
-                "Работа: "+j.title,
-                "Статус: "+j.status,
-                "Срок: "+j.dueDate,
-                "Стоимость: "+Money.format(j.price),
-                "Оплачено: "+Money.format(j.paid),
-                "Долг: "+Money.format(Money.outstanding(j.price,j.paid))};
-        for(String line:lines) {canvas.drawText(shorten(line,68),42,y,p);y+=31;}
-        y+=18;p.setTypeface(Typeface.create("sans-serif",Typeface.BOLD));
-        canvas.drawText("Описание работ:",42,y,p);
-        y+=28;p.setTypeface(Typeface.DEFAULT);
-        for(String line:wrapText(j.description,60)){
-            if(y>740)break;
-            canvas.drawText(line,42,y,p);y+=23;
-        }
-        p.setTextSize(11);p.setColor(Color.GRAY);
-        canvas.drawText("Информационный документ, не кассовый чек.",42,798,p);
-        pdf.finishPage(page);
+        CrmStore.Job job=store.job(id);
+        if(job==null)throw new IllegalArgumentException("Заказ не найден");
         try(OutputStream out=getContentResolver().openOutputStream(uri,"w")) {
             if(out==null)throw new IllegalStateException("Нет доступа к выбранному файлу");
-            pdf.writeTo(out);
-        }catch(java.io.IOException e) {throw new IllegalStateException("Ошибка сохранения PDF",e);}
-        finally {pdf.close();}
+            OrderPdfWriter.write(job,datetime(job.createdAt),out);
+        } catch(java.io.IOException e) {
+            throw new IllegalStateException("Ошибка сохранения PDF",e);
+        }
         Toast.makeText(this,"PDF сохранён",Toast.LENGTH_SHORT).show();
     }
-    private String shorten(String s,int max) {
-        return s.length()<=max?s:s.substring(0,max-1)+"…";
-    }
-    private List<String> wrapText(String s,int width) {
-        List<String> result=new ArrayList<>();
-        if(s==null||s.trim().isEmpty())return result;
-        for(String paragraph:s.split("\\n",-1)) {
-            StringBuilder line=new StringBuilder();
-            for(String word:paragraph.trim().split("\\s+")) {
-                if(line.length()+word.length()+1>width&&line.length()>0){
-                    result.add(line.toString());line.setLength(0);
-                }
-                if(word.length()>width)word=shorten(word,width);
-                if(line.length()>0)line.append(' ');
-                line.append(word);
-            }
-            result.add(line.toString());
-        }
-        return result;
-    }
+
 }
