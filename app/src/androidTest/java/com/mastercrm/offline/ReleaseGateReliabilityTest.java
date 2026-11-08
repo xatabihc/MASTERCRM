@@ -234,7 +234,7 @@ public final class ReleaseGateReliabilityTest {
                 decoded.recycle();
             }
         } finally {
-            Arrays.fill(password,'\\0');
+            Arrays.fill(password,'\0');
         }
     }
 
