@@ -1,0 +1,70 @@
+name: Отчёт добровольного бета-тестирования
+description: Поделиться обезличенным результатом тестирования MasterCRM Offline
+title: "[Beta] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Форма для добровольного тестирования на вашем устройстве. **Все GitHub Issues общедоступны.**
+        Не прикладывайте реальные клиентские базы, фотографии заказчиков, пароли, номера телефонов, адреса, чеки и резервные архивы.
+        Для отчёта используйте исключительно вымышленные данные и тестовые фотографии.
+        Заполняйте форму только после фактических проверок — не отмечайте тесты, которых не проводили.
+  - type: input
+    id: version
+    attributes:
+      label: Версия MasterCRM
+      placeholder: "1.8.0 Beta"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Модель устройства и версия Android
+      description: Достаточно модели и версии, без IMEI, серийных номеров и идентификаторов.
+      placeholder: "Samsung Galaxy A07, Android 15"
+    validations:
+      required: true
+  - type: input
+    id: duration
+    attributes:
+      label: Сколько дней реально тестировали?
+      placeholder: "7"
+    validations:
+      required: true
+  - type: checkboxes
+    id: scenarios
+    attributes:
+      label: Какие сценарии действительно проверены?
+      options:
+        - label: Добавление и редактирование вымышленного клиента и заказа
+        - label: Авансы, оплаты, возвраты и задолженности
+        - label: Расходы и проверка прибыли
+        - label: Фото «до/после» собственных тестовых предметов
+        - label: PDF заказ-наряда
+        - label: Экспорт и проверка защищённой копии .mcrm5
+        - label: Восстановление .mcrm5 только на отдельной пустой тестовой установке
+        - label: Обновление APK поверх предыдущей подписанной Preview без удаления данных
+        - label: Светлая и тёмная темы, крупный шрифт и экранная клавиатура
+  - type: textarea
+    id: feedback
+    attributes:
+      label: Что оказалось неудобным или непонятным?
+      description: Укажите только обезличенные примеры.
+      placeholder: "Кнопка создания заказа на маленьком экране ..."
+    validations:
+      required: true
+  - type: textarea
+    id: defects
+    attributes:
+      label: Ошибки, зависания или потеря данных
+      description: Если нет — напишите «Не наблюдалось». Не прикладывайте частные логи с данными.
+      placeholder: "Шаги воспроизведения на вымышленных данных"
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Подтверждение конфиденциальности
+      options:
+        - label: В отчёте и вложениях нет личных данных, фотографий клиентов, резервных копий или секретов
+          required: true
