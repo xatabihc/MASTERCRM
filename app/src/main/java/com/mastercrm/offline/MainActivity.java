@@ -1369,6 +1369,8 @@ public final class MainActivity extends Activity {
                     try {
                         String input=readText(uri,80*1024*1024);
                         store.restoreJson(input);
+                        getPreferences(MODE_PRIVATE).edit()
+                                .remove("last_verified_stream_backup").apply();
                         runOnUiThread(()->{
                             Toast.makeText(this,"Резервная копия восстановлена",Toast.LENGTH_LONG).show();
                             render();
